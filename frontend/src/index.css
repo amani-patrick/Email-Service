@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-premium-bg text-premium-text;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-premium-card/50 backdrop-blur-md border border-white/10 rounded-2xl shadow-xl;
+  }
+  
+  .premium-btn {
+    @apply px-4 py-2 bg-premium-accent text-premium-bg font-semibold rounded-lg hover:bg-premium-accent/90 transition-all active:scale-95;
+  }
+  
+  .input-field {
+    @apply w-full bg-premium-bg border border-white/10 rounded-lg px-4 py-2 focus:ring-2 focus:ring-premium-accent outline-none transition-all;
+  }
+}
