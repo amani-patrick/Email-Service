@@ -4,7 +4,8 @@ services:
     restart: always
     ports:
       - '8000:8000'
+    volumes:
+      - ./database.db:/opt/web/database.db
+    environment:
+      - SECRET_KEY=your_secure_random_key_here
     init: true
-  redis:
-    image: redis:7.2.4-alpine
-    restart: always
