@@ -36,8 +36,8 @@ const Inbox = () => {
         <div className="space-y-6">
             <header className="flex items-center justify-between mb-8">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">Personal Workspace</h2>
-                    <p className="text-premium-secondary mt-1">Manage your secure communications</p>
+                    <h2 className="text-3xl font-bold tracking-tight">Personal Inbox</h2>
+                    <p className="text-premium-secondary mt-1">Manage your corporate encrypted communications</p>
                 </div>
                 <button
                     onClick={fetchEmails}
@@ -117,8 +117,8 @@ const Inbox = () => {
                                 <Inbox size={48} strokeWidth={1} />
                             </div>
                             <div>
-                                <p className="text-lg font-bold">Your inbox is empty</p>
-                                <p className="text-premium-secondary text-sm">Communication is waiting to happen.</p>
+                                <p className="text-lg font-bold">Inbox is currently empty</p>
+                                <p className="text-premium-secondary text-sm">No encrypted communications found at this time.</p>
                             </div>
                         </div>
                     )}

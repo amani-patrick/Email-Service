@@ -1,7 +1,7 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Inbox, PenSquare, LogOut, Shield, Settings, User } from 'lucide-react';
+import { Inbox, PenSquare, LogOut, Shield, Settings, User, ShieldAlert } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -20,7 +20,7 @@ const SidebarLink = ({ to, icon: Icon, children }) => (
     </NavLink>
 );
 
-const Dashboard = ({ token, setToken }) => {
+const Dashboard = ({ user, setToken }) => {
     const navigate = useNavigate();
 
     const handleLogout = () => {
@@ -41,26 +41,43 @@ const Dashboard = ({ token, setToken }) => {
                         <Shield className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-bold tracking-tight">SES</h1>
-                        <p className="text-[10px] uppercase font-bold text-premium-accent tracking-widest mt-0.5">Premium</p>
+                        <h1 className="text-xl font-bold tracking-tight">SecureMail</h1>
+                        <p className="text-[10px] uppercase font-bold text-premium-accent tracking-widest mt-0.5">
+                            {user?.tier || 'Professional'}
+                        </p>
                     </div>
                 </div>
 
                 <nav className="flex-1 space-y-2">
                     <SidebarLink to="/inbox" icon={Inbox}>Inbox</SidebarLink>
                     <SidebarLink to="/compose" icon={PenSquare}>Compose</SidebarLink>
+
                     <div className="h-px bg-white/5 my-4 mx-2" />
+
                     <SidebarLink to="/profile" icon={User}>Profile</SidebarLink>
                     <SidebarLink to="/settings" icon={Settings}>Settings</SidebarLink>
+
+                    {user?.is_admin && (
+                        <>
+                            <div className="h-px bg-white/5 my-4 mx-2" />
+                            <SidebarLink to="/admin" icon={ShieldAlert}>Admin Panel</SidebarLink>
+                        </>
+                    )}
                 </nav>
 
-                <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-all mt-auto group"
-                >
-                    <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-                    <span className="font-medium">Logout</span>
-                </button>
+                <div className="mt-auto pt-4 border-t border-white/5">
+                    <div className="px-4 py-3 mb-2">
+                        <p className="text-[10px] text-premium-secondary uppercase tracking-widest font-bold">Logged in as</p>
+                        <p className="text-sm font-medium truncate">{user?.username}</p>
+                    </div>
+                    <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-all group"
+                    >
+                        <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+                        <span className="font-medium">Logout</span>
+                    </button>
+                </div>
             </motion.aside>
 
             {/* Main Content */}

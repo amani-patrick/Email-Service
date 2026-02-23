@@ -1,7 +1,7 @@
 from typing import Annotated, Optional
 from fastapi import HTTPException, Header, status, Depends
 from sqlmodel import Session, create_engine, select, SQLModel
-from model import User, Email
+from model import User, Email, Attachment
 import jwt
 import os
 from datetime import datetime, timedelta
@@ -83,6 +83,8 @@ async def get_email(user: User, email_id: str, session: Session) -> Email:
     email = session.exec(select(Email).where(Email.uuid == email_id, Email.recipient_username == user.username)).first()
     if email is None:
          raise HTTPException(status_code=404, detail="Email not found")
+    # Trigger loading of attachments for serialization
+    _ = email.attachments
     return email
 
 async def mark_read(user: User, email_id: str, session: Session) -> bool:
@@ -94,20 +96,70 @@ async def mark_read(user: User, email_id: str, session: Session) -> bool:
         return True
     return False
 
-async def send_email(recipient_username: str, email_id: str, raw: str, session: Session):
+async def send_email(recipient_username: str, email_id: str, raw: str, sender_username: str, session: Session):
+    # Fetch recipient
+    recipient = session.exec(select(User).where(User.username == recipient_username)).first()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    
+    email_size = len(raw.encode('utf-8'))
+    
+    # Check quota
+    if recipient.storage_used + email_size > recipient.storage_limit:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"Recipient storage quota exceeded ({recipient.username})"
+        )
+    
     email = Email(
         uuid=email_id,
         recipient_username=recipient_username,
         data=raw,
-        sender_username="unknown", 
+        sender_username=sender_username,
+        size=email_size
     )
+    
+    # Update recipient's used storage
+    recipient.storage_used += email_size
+    session.add(recipient)
     session.add(email)
     session.commit()
+    session.refresh(email)
+    return email
+
+async def add_attachment(email_id: int, attachment_uuid: str, filename: str, mime_type: str, size: int, storage_path: str, encrypted_key: str, session: Session):
+    attachment = Attachment(
+        uuid=attachment_uuid,
+        filename=filename,
+        mime_type=mime_type,
+        size=size,
+        storage_path=storage_path,
+        encrypted_key=encrypted_key,
+        email_id=email_id
+    )
+    session.add(attachment)
+    session.commit()
+    return attachment
+
+async def get_attachment(attachment_uuid: str, session: Session) -> Attachment:
+    return session.exec(select(Attachment).where(Attachment.uuid == attachment_uuid)).first()
+
+# Admin Functions
+async def get_all_users(session: Session):
+    return session.exec(select(User)).all()
+
+async def update_user_tier(username: str, tier: str, limit: int, session: Session):
+    user = session.exec(select(User).where(User.username == username)).first()
+    if user:
+        user.tier = tier
+        user.storage_limit = limit
+        session.add(user)
+        session.commit()
+        return True
+    return False
 
 # Root cert logic
 async def set_root_cert(cert: str, session: Session):
-    # This might need a separate table or a simple file for now
-    # For compatibility, let's just store it in a simple KeyValue table or file
     with open("root.crt", "w") as f:
         f.write(cert)
 
@@ -116,3 +168,65 @@ async def get_root_cert():
         with open("root.crt", "r") as f:
             return f.read()
     return None
+
+# Data Lifecycle Management
+async def delete_email(user: User, email_id: str, session: Session):
+    stmt = select(Email).where(Email.uuid == email_id, Email.recipient_username == user.username)
+    email = session.exec(stmt).first()
+    if email:
+        # Update user quota
+        user.storage_used -= email.size
+        # Delete attachments
+        for att in email.attachments:
+            if os.path.exists(att.storage_path):
+                try:
+                    os.remove(att.storage_path)
+                except Exception: pass
+            session.delete(att)
+        session.delete(email)
+        session.add(user)
+        session.commit()
+        return True
+    return False
+
+async def delete_user_account(user: User, session: Session):
+    # Delete all user emails and attachments
+    stmt = select(Email).where(Email.recipient_username == user.username)
+    emails = session.exec(stmt).all()
+    for email in emails:
+        for att in email.attachments:
+            if os.path.exists(att.storage_path):
+                try:
+                    os.remove(att.storage_path)
+                except Exception: pass
+            session.delete(att)
+        session.delete(email)
+    
+    session.delete(user)
+    session.commit()
+    return True
+
+async def reset_user_data(username: str, new_password_hash: str, session: Session):
+    stmt = select(User).where(User.username == username)
+    user = session.exec(stmt).first()
+    if user:
+        # Wipe all data as it's unrecoverable without old password
+        stmt_emails = select(Email).where(Email.recipient_username == user.username)
+        emails = session.exec(stmt_emails).all()
+        for email in emails:
+            for att in email.attachments:
+                if os.path.exists(att.storage_path):
+                    try:
+                        os.remove(att.storage_path)
+                    except Exception: pass
+                session.delete(att)
+            session.delete(email)
+        
+        user.password_hash = new_password_hash
+        user.storage_used = 0
+        user.public_key = ""
+        user.encrypted_private_key = ""
+        session.add(user)
+        session.commit()
+        return True
+    return False

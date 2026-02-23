@@ -31,7 +31,8 @@ async def init():
             username='admin@ses',
             password_hash=db.get_password_hash(admin_password),
             public_key=admin_pub,
-            private_key=admin_priv
+            encrypted_private_key=admin_priv,
+            is_admin=True
         )
         session.add(admin)
 
@@ -61,9 +62,9 @@ async def init():
             html=True,
             sign=True,
             cert=admin.public_key,
-            key=admin.private_key
+            key=admin.encrypted_private_key
         )
-        await db.send_email(user.username, str(uuid.uuid4()), msg, session)
+        await db.send_email(user.username, str(uuid.uuid4()), msg, admin.username, session)
 
         print('--- Initialization Complete ---')
         print('User username:', user.username)

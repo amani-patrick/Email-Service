@@ -5,7 +5,11 @@ services:
     ports:
       - '8000:8000'
     volumes:
-      - ./database.db:/opt/web/database.db
+      - ./data/database.db:/opt/web/database.db
+      - ./data/uploads:/opt/web/uploads
+      - ./data/root.crt:/opt/web/root.crt
     environment:
       - SECRET_KEY=your_secure_random_key_here
+      - STRIPE_SECRET_KEY=sk_test_mock
+      - STRIPE_WEBHOOK_SECRET=whsec_mock
     init: true
