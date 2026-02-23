@@ -1,3 +1,5 @@
 *.pem
 *.lic
 .env
+uploads/
+__pycache__/
