@@ -1,5 +1,6 @@
 from typing import Annotated, Optional
 from fastapi import HTTPException, Header, status, Depends
+from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, create_engine, select, SQLModel
 from model import User, Email, Attachment
 import jwt
@@ -17,6 +18,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
@@ -42,7 +44,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 async def request_user(
-    token: Annotated[str, Header()],
+    token: Annotated[str, Depends(oauth2_scheme)],
     session: Session = Depends(get_session)
 ) -> User:
     try:

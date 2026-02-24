@@ -3,3 +3,7 @@
 .env
 uploads/
 __pycache__/
+venv/
+*.txt
+node_modules/
+*.crt

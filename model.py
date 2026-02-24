@@ -6,7 +6,8 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True)
     password_hash: str
-    public_key: str = ""
+    public_key: str = "" # JWK format for frontend
+    certificate: str = "" # PEM format for backend S/MIME
     encrypted_private_key: str = ""
     
     # Commercial fields

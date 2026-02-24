@@ -1,143 +1,181 @@
 import React, { useState } from 'react';
-import axios from 'axios';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, Lock, Loader2, UserPlus, ArrowRight, ShieldCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { generateKeyPair, exportKey, wrapPrivateKey } from '../crypto';
 
 const Login = ({ setToken }) => {
     const [isLogin, setIsLogin] = useState(true);
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
+    const [username, setUsername] = useState('user@ses');
+    const [password, setPassword] = useState('289275a80f78b77f06e103f5b34fc60c');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+    const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
-        setSuccess('');
-
-        const endpoint = isLogin ? '/api/login' : '/api/register';
 
         try {
-            const response = await axios.post(endpoint, { username, password });
-            if (isLogin) {
-                setToken(response.data.access_token);
+            const endpoint = isLogin ? '/api/login' : '/api/register';
+            let payload = { username, password };
+
+            if (!isLogin) {
+                // Zero-Knowledge Key Generation
+                const keyPair = await generateKeyPair();
+                const pubKeyJwk = await exportKey(keyPair.publicKey);
+                const privKeyJwk = await exportKey(keyPair.privateKey);
+
+                // Wrap the private key with the user's password
+                const wrappedPrivKey = await wrapPrivateKey(privKeyJwk, password);
+
+                payload.public_key = pubKeyJwk;
+                payload.encrypted_private_key = wrappedPrivKey;
+            }
+
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                if (isLogin) {
+                    localStorage.setItem('token', data.access_token);
+                    if (setToken) setToken(data.access_token);
+                    navigate('/dashboard');
+                } else {
+                    setSuccess('Account created! Please login.');
+                    setIsLogin(true);
+                }
             } else {
-                setSuccess('Account created successfully. Please sign in.');
-                setIsLogin(true);
-                setPassword('');
+                setError(data.detail || 'An error occurred');
             }
         } catch (err) {
-            setError(err.response?.data?.detail || 'Authentication failed');
+            setError('Network error. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="flex items-center justify-center min-h-screen p-6 bg-premium-bg">
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="glass-card w-full max-w-md p-10 relative overflow-hidden"
-            >
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-premium-accent via-blue-500 to-premium-accent" />
+        <div style={{
+            minHeight: '100vh',
+            backgroundColor: '#0f172a',
+            color: '#f8fafc',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+        }}>
+            <div style={{
+                backgroundColor: '#1e293b',
+                padding: '40px',
+                borderRadius: '16px',
+                width: '100%',
+                maxWidth: '400px'
+            }}>
+                <h2 style={{ fontSize: '32px', marginBottom: '8px', textAlign: 'center' }}>
+                    {isLogin ? 'Welcome Back' : 'Create Account'}
+                </h2>
+                <p style={{ color: '#94a3b8', marginBottom: '32px', textAlign: 'center' }}>
+                    {isLogin ? 'Sign in to your secure account' : 'Start your secure journey'}
+                </p>
 
-                <div className="flex flex-col items-center mb-10">
-                    <motion.div
-                        key={isLogin ? 'login-icon' : 'reg-icon'}
-                        initial={{ scale: 0.5, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        className="p-4 bg-premium-accent/10 rounded-2xl mb-4 text-premium-accent"
-                    >
-                        {isLogin ? <ShieldCheck size={32} /> : <UserPlus size={32} />}
-                    </motion.div>
-                    <h1 className="text-3xl font-bold tracking-tight">SecureMail <span className="text-premium-accent text-lg">Enterprise</span></h1>
-                    <p className="text-premium-secondary mt-2 text-sm">
-                        {isLogin ? 'Access your secure environment' : 'Provision a new secure identity'}
-                    </p>
-                </div>
+                {error && (
+                    <div style={{
+                        backgroundColor: '#ef4444',
+                        color: 'white',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        marginBottom: '20px'
+                    }}>
+                        {error}
+                    </div>
+                )}
 
-                <AnimatePresence mode="wait">
-                    {error && (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl text-xs font-bold uppercase tracking-wider text-center"
-                        >
-                            {error}
-                        </motion.div>
-                    )}
-                    {success && (
-                        <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="mb-6 p-4 bg-green-500/10 border border-green-500/20 text-green-500 rounded-xl text-xs font-bold uppercase tracking-wider text-center"
-                        >
-                            {success}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <form onSubmit={handleSubmit} className="space-y-6">
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-premium-secondary uppercase tracking-widest flex items-center gap-2">
-                            <Mail className="w-3.5 h-3.5" /> Identity Address
+                <form onSubmit={handleSubmit}>
+                    <div style={{ marginBottom: '20px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 'bold' }}>
+                            Username
                         </label>
                         <input
                             type="text"
-                            required
-                            className="input-field"
-                            placeholder="username@ses"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
+                            required
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                backgroundColor: '#0f172a',
+                                border: '1px solid #334155',
+                                borderRadius: '8px',
+                                color: '#f8fafc',
+                                fontSize: '16px'
+                            }}
                         />
                     </div>
 
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-premium-secondary uppercase tracking-widest flex items-center gap-2">
-                            <Lock className="w-3.5 h-3.5" /> Access Credential
+                    <div style={{ marginBottom: '24px' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 'bold' }}>
+                            Password
                         </label>
                         <input
                             type="password"
-                            required
-                            className="input-field"
-                            placeholder="••••••••"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            required
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                backgroundColor: '#0f172a',
+                                border: '1px solid #334155',
+                                borderRadius: '8px',
+                                color: '#f8fafc',
+                                fontSize: '16px'
+                            }}
                         />
                     </div>
 
                     <button
                         type="submit"
                         disabled={loading}
-                        className="premium-btn w-full flex items-center justify-center gap-2 h-14 text-lg"
+                        style={{
+                            width: '100%',
+                            padding: '12px',
+                            backgroundColor: loading ? '#64748b' : '#38bdf8',
+                            color: '#0f172a',
+                            border: 'none',
+                            borderRadius: '8px',
+                            fontSize: '16px',
+                            fontWeight: 'bold',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            marginBottom: '16px'
+                        }}
                     >
-                        {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (
-                            <>
-                                {isLogin ? 'Initialize Workspace' : 'Confirm Registration'}
-                                <ArrowRight size={20} />
-                            </>
-                        )}
+                        {loading ? 'Loading...' : (isLogin ? 'Sign In' : 'Create Account')}
                     </button>
                 </form>
 
-                <div className="mt-8 pt-8 border-t border-white/5 text-center">
+                <div style={{ textAlign: 'center' }}>
                     <button
-                        onClick={() => {
-                            setIsLogin(!isLogin);
-                            setError('');
-                            setSuccess('');
+                        type="button"
+                        onClick={() => setIsLogin(!isLogin)}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#38bdf8',
+                            cursor: 'pointer',
+                            fontSize: '14px'
                         }}
-                        className="text-sm font-medium text-premium-secondary hover:text-premium-accent transition-colors"
                     >
-                        {isLogin ? "Don't have an enterprise account? Sign Up" : "Already have an account? Sign In"}
+                        {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
                     </button>
                 </div>
-            </motion.div>
+            </div>
         </div>
     );
 };

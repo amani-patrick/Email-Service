@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import api from '../api';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, CreditCard, Shield, Zap, Check, ArrowRight, Loader2, Wallet } from 'lucide-react';
+import { Settings as SettingsIcon, CreditCard, Shield, Zap, Check, ArrowRight, Loader2, Wallet, X, XCircle, CheckCircle, Info } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
 
 const PricingCard = ({ tier, limit, price, features, current, onUpgrade }) => (
     <div className={`glass-card p-8 flex flex-col h-full border ${current ? 'border-premium-accent ring-1 ring-premium-accent/20' : 'border-white/5'}`}>
@@ -46,6 +47,7 @@ const PricingCard = ({ tier, limit, price, features, current, onUpgrade }) => (
 
 const Settings = ({ user }) => {
     const [loading, setLoading] = useState(false);
+    const [notification, setNotification] = useState(null);
 
     const handleUpgrade = async (tier) => {
         setLoading(true);
@@ -56,7 +58,10 @@ const Settings = ({ user }) => {
             }
         } catch (err) {
             console.error('Upgrade failed', err);
-            alert('Payment system error. Please try again later.');
+            setNotification({
+                type: 'error',
+                message: 'Payment system error. Please try again later.'
+            });
         } finally {
             setLoading(false);
         }
@@ -80,6 +85,36 @@ const Settings = ({ user }) => {
                 </div>
             </header>
 
+            <AnimatePresence>
+                {notification && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                        className={`fixed bottom-8 right-8 z-[100] p-4 rounded-2xl border backdrop-blur-xl shadow-2xl flex items-center gap-4 min-w-[320px] ${notification.type === 'error'
+                                ? 'bg-red-500/10 border-red-500/20 text-red-400'
+                                : notification.type === 'success'
+                                    ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                                    : 'bg-premium-accent/10 border-premium-accent/20 text-premium-accent'
+                            }`}
+                    >
+                        <div className={`p-2 rounded-lg ${notification.type === 'error' ? 'bg-red-500/20' : notification.type === 'success' ? 'bg-green-500/20' : 'bg-premium-accent/20'
+                            }`}>
+                            {notification.type === 'error' ? <XCircle size={20} /> : notification.type === 'success' ? <CheckCircle size={20} /> : <Info size={20} />}
+                        </div>
+                        <div className="flex-1">
+                            <p className="text-sm font-bold">{notification.message}</p>
+                        </div>
+                        <button
+                            onClick={() => setNotification(null)}
+                            className="p-1 hover:bg-white/5 rounded-md transition-colors"
+                        >
+                            <X size={16} />
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             <section className="space-y-8">
                 <div className="flex items-center gap-2">
                     <Zap className="text-premium-accent" size={24} />
@@ -96,7 +131,7 @@ const Settings = ({ user }) => {
                             "Zero-Knowledge Encryption",
                             "Basic Signature Verification",
                             "Community Support",
-                            "Standard Archive Access"
+                            "Internal Messaging Only"
                         ]}
                     />
                     <PricingCard
@@ -107,10 +142,10 @@ const Settings = ({ user }) => {
                         onUpgrade={handleUpgrade}
                         features={[
                             "Unlimited Private Drive Storage",
-                            "Priority Signature Verification",
+                            "External Secure Invites (50/mo)",
                             "24/7 Expert Support",
                             "Extended Storage Metrics",
-                            "Custom Security Certificates"
+                            "Priority Verification"
                         ]}
                     />
                     <PricingCard
@@ -120,11 +155,11 @@ const Settings = ({ user }) => {
                         current={user?.tier === 'Enterprise'}
                         onUpgrade={handleUpgrade}
                         features={[
-                            "Full Corporate Transparency",
-                            "Team Resource Collaboration",
+                            "Unlimited External Invites",
+                            "SMTP Gateway Support",
                             "Infinite Retention Policies",
                             "Advanced Threat Prevention",
-                            "Dedicated Private Infrastructure"
+                            "Dedicated Infrastructure"
                         ]}
                     />
                 </div>

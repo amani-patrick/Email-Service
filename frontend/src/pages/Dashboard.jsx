@@ -1,96 +1,127 @@
 import React from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Inbox, PenSquare, LogOut, Shield, Settings, User, ShieldAlert } from 'lucide-react';
-import { clsx } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { Link } from 'react-router-dom';
+import {
+    Inbox,
+    Send,
+    ShieldCheck,
+    ChevronRight,
+    ArrowUpRight,
+    User as UserIcon,
+    Settings as SettingsIcon
+} from 'lucide-react';
 
-const SidebarLink = ({ to, icon: Icon, children }) => (
-    <NavLink
-        to={to}
-        className={({ isActive }) => twMerge(
-            clsx(
-                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all group",
-                isActive ? "bg-premium-accent text-premium-bg shadow-lg shadow-premium-accent/20" : "text-premium-secondary hover:bg-white/5 hover:text-white"
-            )
-        )}
-    >
-        <Icon className="w-5 h-5 transition-transform group-hover:scale-110" />
-        <span className="font-medium">{children}</span>
-    </NavLink>
+const StatCard = ({ title, value, subtext, icon: Icon, color, to }) => (
+    <div className="glass-card p-6 flex flex-col h-full group hover:border-premium-accent/30 transition-all duration-300">
+        <div className="flex justify-between items-start mb-6">
+            <div className={`p-3 rounded-xl bg-${color}/10 text-${color}`}>
+                <Icon size={24} />
+            </div>
+            {to && (
+                <Link to={to} className="opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-white/5 rounded-lg text-premium-secondary">
+                    <ArrowUpRight size={18} />
+                </Link>
+            )}
+        </div>
+        <h3 className="text-premium-secondary text-sm font-black uppercase tracking-widest mb-2">{title}</h3>
+        <p className="text-4xl font-bold text-white mb-2">{value}</p>
+        <p className="text-sm text-premium-secondary">{subtext}</p>
+    </div>
 );
 
-const Dashboard = ({ user, setToken }) => {
-    const navigate = useNavigate();
-
-    const handleLogout = () => {
-        setToken(null);
-        navigate('/login');
-    };
-
+const Dashboard = ({ user }) => {
     return (
-        <div className="flex h-screen overflow-hidden bg-premium-bg text-premium-text">
-            {/* Sidebar */}
-            <motion.aside
-                initial={{ x: -20, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                className="w-64 border-r border-white/5 flex flex-col p-4 bg-premium-card/30 backdrop-blur-xl"
-            >
-                <div className="flex items-center gap-3 px-4 py-6 mb-8">
-                    <div className="w-10 h-10 bg-gradient-to-br from-premium-accent to-purple-500 rounded-xl flex items-center justify-center shadow-lg">
-                        <Shield className="w-6 h-6 text-white" />
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-bold tracking-tight">SecureMail</h1>
-                        <p className="text-[10px] uppercase font-bold text-premium-accent tracking-widest mt-0.5">
-                            {user?.tier || 'Professional'}
-                        </p>
-                    </div>
+        <div className="space-y-8">
+            {/* Hero Section */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-4 border-b border-white/5">
+                <div>
+                    <h1 className="text-5xl font-black text-white tracking-tight mb-2">
+                        Welcome back, <span className="text-premium-accent italic">{user?.username?.split('@')[0]}</span>
+                    </h1>
+                    <p className="text-premium-secondary font-medium">
+                        Your secure workspace is encrypted and ready for operation.
+                    </p>
                 </div>
-
-                <nav className="flex-1 space-y-2">
-                    <SidebarLink to="/inbox" icon={Inbox}>Inbox</SidebarLink>
-                    <SidebarLink to="/compose" icon={PenSquare}>Compose</SidebarLink>
-
-                    <div className="h-px bg-white/5 my-4 mx-2" />
-
-                    <SidebarLink to="/profile" icon={User}>Profile</SidebarLink>
-                    <SidebarLink to="/settings" icon={Settings}>Settings</SidebarLink>
-
-                    {user?.is_admin && (
-                        <>
-                            <div className="h-px bg-white/5 my-4 mx-2" />
-                            <SidebarLink to="/admin" icon={ShieldAlert}>Admin Panel</SidebarLink>
-                        </>
-                    )}
-                </nav>
-
-                <div className="mt-auto pt-4 border-t border-white/5">
-                    <div className="px-4 py-3 mb-2">
-                        <p className="text-[10px] text-premium-secondary uppercase tracking-widest font-bold">Logged in as</p>
-                        <p className="text-sm font-medium truncate">{user?.username}</p>
-                    </div>
-                    <button
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-all group"
-                    >
-                        <LogOut className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-                        <span className="font-medium">Logout</span>
-                    </button>
+                <div className="flex items-center gap-4 bg-white/5 px-4 py-2 rounded-full border border-white/10">
+                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    <span className="text-xs font-bold uppercase tracking-widest text-premium-secondary">Identity Verified</span>
                 </div>
-            </motion.aside>
+            </div>
 
-            {/* Main Content */}
-            <main className="flex-1 overflow-y-auto relative p-8">
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 }}
-                    className="max-w-5xl mx-auto"
-                >
-                    <Outlet />
-                </motion.div>
-            </main>
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard
+                    title="Communications"
+                    value="0"
+                    subtext="Unread messages in your inbox"
+                    icon={Inbox}
+                    color="premium-accent"
+                    to="/inbox"
+                />
+                <StatCard
+                    title="Security Level"
+                    value="E2EE"
+                    subtext="Post-quantum cryptographic protection"
+                    icon={ShieldCheck}
+                    color="blue-400"
+                />
+                <StatCard
+                    title="Account Identity"
+                    value={user?.tier || 'Free'}
+                    subtext={`${(user?.storage_used / 1024 / 1024).toFixed(1)}MB of ${(user?.storage_limit / 1024 / 1024).toFixed(0)}MB used`}
+                    icon={UserIcon}
+                    color="purple-400"
+                    to="/profile"
+                />
+            </div>
+
+            {/* Quick Actions Panel */}
+            <div className="glass-card p-1">
+                <div className="p-8 pb-4">
+                    <h2 className="text-xl font-bold flex items-center gap-3">
+                        Quick Actions
+                    </h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-white/5">
+                    <Link to="/compose" className="p-8 bg-premium-card hover:bg-white/[0.02] transition-colors flex items-center justify-between group">
+                        <div className="flex items-center gap-6">
+                            <div className="p-4 rounded-2xl bg-premium-accent/10 text-premium-accent group-hover:scale-110 transition-transform">
+                                <Send size={24} />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-lg">Compose Email</h4>
+                                <p className="text-sm text-premium-secondary">Send encrypted message</p>
+                            </div>
+                        </div>
+                        <ChevronRight className="text-premium-secondary group-hover:translate-x-1 transition-transform" />
+                    </Link>
+
+                    <Link to="/inbox" className="p-8 bg-premium-card hover:bg-white/[0.02] transition-colors flex items-center justify-between group">
+                        <div className="flex items-center gap-6">
+                            <div className="p-4 rounded-2xl bg-blue-400/10 text-blue-400 group-hover:scale-110 transition-transform">
+                                <Inbox size={24} />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-lg">Access Inbox</h4>
+                                <p className="text-sm text-premium-secondary">View received messages</p>
+                            </div>
+                        </div>
+                        <ChevronRight className="text-premium-secondary group-hover:translate-x-1 transition-transform" />
+                    </Link>
+
+                    <Link to="/settings" className="p-8 bg-premium-card hover:bg-white/[0.02] transition-colors flex items-center justify-between group md:col-span-2 lg:col-span-1">
+                        <div className="flex items-center gap-6">
+                            <div className="p-4 rounded-2xl bg-purple-400/10 text-purple-400 group-hover:scale-110 transition-transform">
+                                <SettingsIcon size={24} />
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-lg">System Settings</h4>
+                                <p className="text-sm text-premium-secondary">Manage keys and profile</p>
+                            </div>
+                        </div>
+                        <ChevronRight className="text-premium-secondary group-hover:translate-x-1 transition-transform" />
+                    </Link>
+                </div>
+            </div>
         </div>
     );
 };

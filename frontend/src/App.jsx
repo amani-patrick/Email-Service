@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import axios from 'axios';
-import api from './api';
+import { Routes, Route, Navigate } from 'react-router-dom';
 
 // Pages
 import LandingPage from './pages/LandingPage';
@@ -9,11 +7,13 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Inbox from './pages/Inbox';
 import Compose from './pages/Compose';
-import EmailDetails from './pages/EmailDetails';
-import AdminDashboard from './pages/Admin';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
-import PaymentSuccess from './pages/PaymentSuccess';
+import Admin from './pages/Admin';
+import EmailDetails from './pages/EmailDetails';
+
+// Components
+import Layout from './components/Layout';
 
 const App = () => {
     const [token, setToken] = useState(localStorage.getItem('token'));
@@ -23,11 +23,9 @@ const App = () => {
     useEffect(() => {
         if (token) {
             localStorage.setItem('token', token);
-            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
             fetchUser();
         } else {
             localStorage.removeItem('token');
-            delete axios.defaults.headers.common['Authorization'];
             setUser(null);
             setLoading(false);
         }
@@ -35,8 +33,17 @@ const App = () => {
 
     const fetchUser = async () => {
         try {
-            const res = await api.get('/api/user/me');
-            setUser(res.data);
+            const response = await fetch('/api/me', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            if (response.ok) {
+                const userData = await response.json();
+                setUser(userData);
+            } else {
+                setToken(null);
+            }
         } catch (err) {
             console.error('Failed to fetch user', err);
             setToken(null);
@@ -47,34 +54,57 @@ const App = () => {
 
     if (loading && token) {
         return (
-            <div className="min-h-screen bg-premium-bg flex items-center justify-center">
-                <div className="w-12 h-12 border-4 border-premium-accent border-t-transparent rounded-full animate-spin" />
+            <div style={{
+                minHeight: '100vh',
+                backgroundColor: '#0f172a',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+            }}>
+                <div style={{
+                    width: '48px',
+                    height: '48px',
+                    border: '4px solid #38bdf8',
+                    borderTop: '4px solid transparent',
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite'
+                }}></div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-premium-bg text-premium-text">
+        <div>
             <Routes>
                 {/* Public Routes */}
                 <Route path="/" element={token ? <Navigate to="/dashboard" /> : <LandingPage />} />
-                <Route path="/login" element={!token ? <Login setToken={setToken} /> : <Navigate to="/dashboard" />} />
-                <Route path="/payment-success" element={<PaymentSuccess />} />
+                <Route path="/login" element={token ? <Navigate to="/dashboard" /> : <Login setToken={setToken} />} />
 
-                {/* Dashboard & Protected Routes */}
-                <Route
-                    path="/*"
-                    element={token ? <Dashboard user={user} setToken={setToken} /> : <Navigate to="/" />}
-                >
-                    <Route index element={<Navigate to="inbox" />} />
-                    <Route path="dashboard" element={<Navigate to="/inbox" />} />
-                    <Route path="inbox" element={<Inbox token={token} />} />
-                    <Route path="compose" element={<Compose token={token} />} />
-                    <Route path="email/:id" element={<EmailDetails user={user} token={token} />} />
-                    <Route path="settings" element={<Settings user={user} />} />
-                    <Route path="profile" element={<Profile user={user} />} />
-                    <Route path="admin" element={user?.is_admin ? <AdminDashboard token={token} /> : <Navigate to="/" />} />
-                </Route>
+                {/* Protected Routes */}
+                <Route path="/dashboard" element={
+                    token ? <Layout user={user} setToken={setToken}><Dashboard user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/inbox" element={
+                    token ? <Layout user={user} setToken={setToken}><Inbox user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/compose" element={
+                    token ? <Layout user={user} setToken={setToken}><Compose user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/settings" element={
+                    token ? <Layout user={user} setToken={setToken}><Settings user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/profile" element={
+                    token ? <Layout user={user} setToken={setToken}><Profile user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/email/:id" element={
+                    token ? <Layout user={user} setToken={setToken}><EmailDetails user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/admin" element={
+                    token && user?.is_admin ? <Layout user={user} setToken={setToken}><Admin user={user} /></Layout> : <Navigate to="/dashboard" />
+                } />
+
+                {/* Fallback */}
+                <Route path="*" element={<Navigate to={token ? "/dashboard" : "/"} />} />
             </Routes>
         </div>
     );

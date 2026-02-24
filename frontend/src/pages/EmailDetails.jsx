@@ -4,6 +4,7 @@ import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, Calendar, User, ShieldCheck, Mail, Printer, Trash2, Lock, Unlock, ShieldAlert, Loader2, Download, File, Paperclip } from 'lucide-react';
 import { importKey, unwrapPrivateKey, decryptMessage, importFileKey, decryptFile } from '../crypto';
+import { parse } from '../email';
 
 const EmailDetails = ({ user }) => {
     const { id } = useParams();
@@ -16,12 +17,24 @@ const EmailDetails = ({ user }) => {
     const [error, setError] = useState(null);
     const [privateKey, setPrivateKey] = useState(null);
     const [downloadingId, setDownloadingId] = useState(null);
+    const [parsedContent, setParsedContent] = useState(null);
 
     useEffect(() => {
         const fetchEmail = async () => {
             try {
                 const res = await api.get(`/api/email/${id}`);
                 setEmail(res.data);
+
+                // Proactively parse if it looks like MIME
+                if (res.data.data.includes('MIME-Version')) {
+                    try {
+                        const parsed = await parse(res.data.data);
+                        setParsedContent(parsed);
+                    } catch (e) {
+                        console.error("MIME Parsing failed", e);
+                    }
+                }
+
                 if (!res.data.read) {
                     api.post(`/api/mark_read/${id}`);
                 }
@@ -46,7 +59,19 @@ const EmailDetails = ({ user }) => {
             if (email.data.includes('---BEGIN ENCRYPTED MESSAGE---')) {
                 const encryptedContent = email.data.split('---BEGIN ENCRYPTED MESSAGE---\n')[1].split('\n---END ENCRYPTED MESSAGE---')[0];
                 const decrypted = await decryptMessage(privKey, encryptedContent);
-                setDecryptedData(decrypted);
+
+                // If the decrypted content itself is a MIME message, parse it
+                if (decrypted.includes('MIME-Version')) {
+                    try {
+                        const parsed = await parse(decrypted);
+                        setParsedContent(parsed);
+                    } catch (e) {
+                        setDecryptedData(decrypted);
+                    }
+                } else {
+                    setDecryptedData(decrypted);
+                    setParsedContent(null);
+                }
             }
         } catch (err) {
             console.error('Decryption failed', err);
@@ -206,10 +231,25 @@ const EmailDetails = ({ user }) => {
                     ) : (
                         <div className="space-y-8">
                             <div className="prose prose-invert max-w-none">
-                                <div className="bg-premium-bg/50 p-8 rounded-2xl border border-white/5 font-mono text-sm whitespace-pre-wrap leading-relaxed shadow-inner">
-                                    {decryptedData || email.data}
-                                </div>
-                                {decryptedData && (
+                                {parsedContent ? (
+                                    <div className="bg-premium-bg/50 p-8 rounded-2xl border border-white/5 shadow-inner min-h-[200px]">
+                                        {parsedContent.html ? (
+                                            <div
+                                                dangerouslySetInnerHTML={{ __html: parsedContent.html }}
+                                                className="email-html-content"
+                                            />
+                                        ) : (
+                                            <pre className="text-sm font-mono whitespace-pre-wrap leading-relaxed text-slate-300">
+                                                {parsedContent.body}
+                                            </pre>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="bg-premium-bg/50 p-8 rounded-2xl border border-white/5 font-mono text-sm whitespace-pre-wrap leading-relaxed shadow-inner">
+                                        {decryptedData || email.data}
+                                    </div>
+                                )}
+                                {(decryptedData || (parsedContent && isEncrypted)) && (
                                     <div className="mt-4 flex items-center gap-2 text-xs text-green-500 font-bold uppercase tracking-widest">
                                         <Unlock size={14} /> Local WebCrypto Decryption Success
                                     </div>

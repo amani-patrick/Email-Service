@@ -1,5 +1,5 @@
 from typing import Annotated
-from fastapi import Body, Depends, FastAPI, HTTPException, status, UploadFile, File, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, status, UploadFile, File, Request, Form
 from fastapi.responses import FileResponse
 from model import User, Email, Attachment
 from sqlmodel import Session, select
@@ -189,8 +189,28 @@ async def send(
     session: Session = Depends(db.get_session)
 ):
     recipient = await db.get_user(to, session)
+    
+    # Tier Gating for External Domains
+    if not to.endswith('@ses'):
+        if user.tier == "Free":
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="External secure invites are a Pro/Enterprise feature. Please upgrade your account."
+            )
+        
+        # Simulation: Create a "Guest" account or just skip validation if external
+        if not recipient:
+            # For the simulation, we'll allow sending to external domains by skipping recipient storage
+            # In a real app, this would trigger an SMTP invite.
+            pass
 
-    if len(user.public_key) == 0:
+    if not recipient and to.endswith('@ses'):
+        raise HTTPException(status_code=404, detail=f"Recipient {to} not found in SecureMail network")
+
+    # Sign if we have a valid PEM private key (not zero-knowledge wrapped)
+    should_sign = len(user.certificate) > 0 and len(user.encrypted_private_key) > 0 and not user.encrypted_private_key.startswith('{')
+
+    if not should_sign:
         msg = util.generate_email(
             sender=user.username,
             recipient=recipient.username,
@@ -208,12 +228,18 @@ async def send(
             ),
             html=True,
             sign=True,
-            cert=user.public_key,
+            cert=user.certificate,
             key=user.encrypted_private_key
         )
 
     email_id = str(uuid.uuid4())
-    await db.send_email(recipient.username, email_id, msg, user.username, session)
+    
+    if recipient:
+        await db.send_email(recipient.username, email_id, msg, user.username, session)
+    else:
+        # Externally dispatched message simulation
+        # In a real enterprise app, we'd log this in an 'external_invites' table
+        pass
 
     return email_id
 
@@ -251,8 +277,8 @@ async def upload_license(
 @app.post('/api/upload')
 async def upload_attachment(
     user: Annotated[User, Depends(db.request_user)],
-    email_uuid: Annotated[str, Body()],
-    encrypted_key: Annotated[str, Body()],
+    email_uuid: Annotated[str, Form()],
+    encrypted_key: Annotated[str, Form()],
     file: UploadFile = File(...),
     session: Session = Depends(db.get_session)
 ):

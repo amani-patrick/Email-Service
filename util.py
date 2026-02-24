@@ -1,12 +1,16 @@
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.x509.oid import ExtendedKeyUsageOID
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import base64
+import json
 
 import datetime
 import smail
+import os
 
 def generate_email(
 	sender: str,
@@ -109,3 +113,72 @@ def export(pair: tuple[x509.Certificate, rsa.RSAPrivateKey]) -> tuple[str, str]:
 		serialization.NoEncryption()
 	).decode()
 	return pub, priv
+
+def rsa_pub_to_jwk(cert_pem: str) -> str:
+    # Load the certificate and extract public key
+    cert = x509.load_pem_x509_certificate(cert_pem.encode())
+    public_key = cert.public_key()
+    
+    if not isinstance(public_key, rsa.RSAPublicKey):
+        raise ValueError("Only RSA keys are supported for JWK conversion")
+    
+    # Get public numbers (n and e)
+    numbers = public_key.public_numbers()
+    
+    # Convert to base64url encoding (no padding, replaces + with - and / with _)
+    def b64url(n: int) -> str:
+        # Convert integer to bytes
+        b = n.to_bytes((n.bit_length() + 7) // 8, 'big')
+        return base64.urlsafe_b64encode(b).decode().rstrip('=')
+
+    jwk = {
+        "kty": "RSA",
+        "n": b64url(numbers.n),
+        "e": b64url(numbers.e),
+        "alg": "RSA-OAEP-256",
+        "key_ops": ["encrypt"],
+        "ext": True
+    }
+    
+    return json.dumps(jwk)
+
+def rsa_priv_to_jwk(priv_key: rsa.RSAPrivateKey) -> str:
+    if not isinstance(priv_key, rsa.RSAPrivateKey):
+        raise ValueError("Provided key is not an RSA private key")
+    
+    pn = priv_key.private_numbers()
+    
+    def b64url(n: int) -> str:
+        b = n.to_bytes((n.bit_length() + 7) // 8, 'big')
+        return base64.urlsafe_b64encode(b).decode().rstrip('=')
+
+    jwk = {
+        "kty": "RSA",
+        "n": b64url(pn.public_numbers.n),
+        "e": b64url(pn.public_numbers.e),
+        "d": b64url(pn.d),
+        "p": b64url(pn.p),
+        "q": b64url(pn.q),
+        "dp": b64url(pn.dmp1),
+        "dq": b64url(pn.dmq1),
+        "qi": b64url(pn.iqmp),
+        "alg": "RSA-OAEP-256",
+        "key_ops": ["decrypt"],
+        "ext": True
+    }
+    
+    return json.dumps(jwk)
+
+def wrap_private_key_python(jwk_str: str, password: str) -> str:
+    # Match browser padding: password.padEnd(32).slice(0, 32)
+    key_bytes = password.encode().ljust(32, b' ')[:32]
+    
+    aesgcm = AESGCM(key_bytes)
+    iv = os.urandom(12)
+    
+    ciphertext = aesgcm.encrypt(iv, jwk_str.encode(), None)
+    
+    return json.dumps({
+        "iv": base64.b64encode(iv).decode(),
+        "data": base64.b64encode(ciphertext).decode()
+    })
