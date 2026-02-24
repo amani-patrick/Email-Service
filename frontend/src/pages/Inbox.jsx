@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, RefreshCw, Star, Trash2, MailOpen, Mail } from 'lucide-react';
+import { Search, RefreshCw, Star, Trash2, MailOpen, Inbox as InboxIcon, Mail } from 'lucide-react';
 
 const Inbox = () => {
     const [emails, setEmails] = useState({});
@@ -114,7 +114,7 @@ const Inbox = () => {
                     {filteredEmails.length === 0 && !loading && (
                         <div className="py-20 text-center flex flex-col items-center gap-4">
                             <div className="p-4 bg-white/5 rounded-full text-premium-secondary">
-                                <Inbox size={48} strokeWidth={1} />
+                                <InboxIcon size={48} strokeWidth={1} />
                             </div>
                             <div>
                                 <p className="text-lg font-bold">Inbox is currently empty</p>

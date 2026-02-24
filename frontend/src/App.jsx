@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import api from './api';
 
 // Pages
 import LandingPage from './pages/LandingPage';
@@ -33,17 +34,8 @@ const App = () => {
 
     const fetchUser = async () => {
         try {
-            const response = await fetch('/api/me', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-            if (response.ok) {
-                const userData = await response.json();
-                setUser(userData);
-            } else {
-                setToken(null);
-            }
+            const response = await api.get('/api/me');
+            setUser(response.data);
         } catch (err) {
             console.error('Failed to fetch user', err);
             setToken(null);

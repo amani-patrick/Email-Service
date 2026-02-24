@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from '../api';
 import { generateKeyPair, exportKey, wrapPrivateKey } from '../crypto';
 
 const Login = ({ setToken }) => {
@@ -8,6 +9,7 @@ const Login = ({ setToken }) => {
     const [password, setPassword] = useState('289275a80f78b77f06e103f5b34fc60c');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
@@ -20,42 +22,30 @@ const Login = ({ setToken }) => {
             let payload = { username, password };
 
             if (!isLogin) {
-                // Zero-Knowledge Key Generation
                 const keyPair = await generateKeyPair();
                 const pubKeyJwk = await exportKey(keyPair.publicKey);
                 const privKeyJwk = await exportKey(keyPair.privateKey);
-
-                // Wrap the private key with the user's password
                 const wrappedPrivKey = await wrapPrivateKey(privKeyJwk, password);
 
                 payload.public_key = pubKeyJwk;
                 payload.encrypted_private_key = wrappedPrivKey;
             }
 
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payload),
-            });
+            const response = await api.post(endpoint, payload);
+            const data = response.data;
 
-            const data = await response.json();
-
-            if (response.ok) {
-                if (isLogin) {
-                    localStorage.setItem('token', data.access_token);
-                    if (setToken) setToken(data.access_token);
-                    navigate('/dashboard');
-                } else {
-                    setSuccess('Account created! Please login.');
-                    setIsLogin(true);
-                }
+            if (isLogin) {
+                localStorage.setItem('token', data.access_token);
+                if (setToken) setToken(data.access_token);
+                navigate('/dashboard');
             } else {
-                setError(data.detail || 'An error occurred');
+                setSuccess('Account created! Please login.');
+                setIsLogin(true);
+                setError('');
             }
         } catch (err) {
-            setError('Network error. Please try again.');
+            console.error('Registration/Login Error:', err);
+            setError(err.response?.data?.detail || 'Network error. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -91,9 +81,23 @@ const Login = ({ setToken }) => {
                         color: 'white',
                         padding: '12px',
                         borderRadius: '8px',
-                        marginBottom: '20px'
+                        marginBottom: '20px',
+                        fontSize: '14px'
                     }}>
                         {error}
+                    </div>
+                )}
+
+                {success && (
+                    <div style={{
+                        backgroundColor: '#22c55e',
+                        color: 'white',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        marginBottom: '20px',
+                        fontSize: '14px'
+                    }}>
+                        {success}
                     </div>
                 )}
 
