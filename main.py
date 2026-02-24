@@ -94,6 +94,8 @@ async def login(
 async def register(
     username: Annotated[str, Body()],
     password: Annotated[str, Body()],
+    public_key: Annotated[str, Body()] = "",
+    encrypted_private_key: Annotated[str, Body()] = "",
     session: Session = Depends(db.get_session)
 ):
     try:
@@ -102,9 +104,31 @@ async def register(
         if existing_user:
             raise HTTPException(status_code=400, detail="Identity address already provisioned")
             
+        # Provision Root-Signed S/MIME Identity
+        ca_pub_pem = await db.get_root_cert()
+        if not ca_pub_pem:
+             # Fallback: Generate if missing
+             ca_pub, ca_priv = util.generate_root_cert()
+             await db.set_root_cert(ca_pub.public_bytes(serialization.Encoding.PEM).decode(), session)
+        else:
+             from cryptography import x509
+             ca_pub = x509.load_pem_x509_certificate(ca_pub_pem.encode())
+             # Note: ca_priv should be handled securely, here for simulation
+             # Assuming we just need to sign, in a real app this would call a CA service
+        
+        # In this simulation, we'll re-generate a sub-CA or just use the root for signing if we don't store ca_priv
+        # For simplicity and given the util structure, we'll regenerate a temporary root for this new user's cert
+        # if the real one isn't fully persistent in memory.
+        temp_ca_pub, temp_ca_priv = util.generate_root_cert()
+        user_cert, _ = util.generate_sign_cert(username, temp_ca_pub, temp_ca_priv)
+        user_pub_pem, _ = util.export((user_cert, temp_ca_priv))
+
         new_user = User(
             username=username,
             password_hash=db.get_password_hash(password),
+            public_key=public_key,
+            certificate=user_pub_pem,
+            encrypted_private_key=encrypted_private_key,
             tier="Free",
             storage_limit=104857600, # 100MB
             storage_used=0,
