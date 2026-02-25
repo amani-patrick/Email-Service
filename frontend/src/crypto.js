@@ -1,5 +1,5 @@
 /**
- * Simple Zero-Knowledge Crypto Utility using WebCrypto API
+ * Zero-Knowledge Crypto Utility using WebCrypto API
  */
 
 export const generateKeyPair = async () => {
