@@ -11,6 +11,22 @@ import json
 import datetime
 import smail
 import os
+import io
+import stepic
+from PIL import Image
+from webauthn import (
+    generate_registration_options,
+    verify_registration_response,
+    generate_authentication_options,
+    verify_authentication_response,
+    options_to_json,
+)
+from webauthn.helpers.structs import (
+    AttestationConveyancePreference,
+    AuthenticatorSelectionCriteria,
+    UserVerificationRequirement,
+    AuthenticatorAttachment,
+)
 
 def generate_email(
 	sender: str,
@@ -182,3 +198,51 @@ def wrap_private_key_python(jwk_str: str, password: str) -> str:
         "iv": base64.b64encode(iv).decode(),
         "data": base64.b64encode(ciphertext).decode()
     })
+
+def hide_message_in_image(image_bytes: bytes, message: str) -> bytes:
+    """Hide a message inside an image using LSB steganography"""
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    
+    # Encode message as bytes
+    msg_bytes = message.encode('utf-8')
+    encoded_img = stepic.encode(img, msg_bytes)
+    
+    output = io.BytesIO()
+    encoded_img.save(output, format='PNG') # PNG is lossless
+    return output.getvalue()
+
+def extract_message_from_image(image_bytes: bytes) -> str:
+    """Extract a hidden message from an image"""
+    img = Image.open(io.BytesIO(image_bytes))
+    decoded_bytes = stepic.decode(img)
+    return decoded_bytes.decode('utf-8', errors='replace')
+
+# WebAuthn Helpers
+RP_ID = os.environ.get("RP_ID", "localhost")
+RP_NAME = "Secure Email Service"
+ORIGIN = os.environ.get("ORIGIN", "http://localhost:5173")
+
+def get_registration_options(username: str, user_id: str, existing_credentials: list = None):
+    options = generate_registration_options(
+        rp_id=RP_ID,
+        rp_name=RP_NAME,
+        user_id=user_id,
+        user_name=username,
+        attestation=AttestationConveyancePreference.DIRECT,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            authenticator_attachment=AuthenticatorAttachment.CROSS_PLATFORM,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        ),
+        exclude_credentials=existing_credentials or [],
+    )
+    return options_to_json(options)
+
+def get_authentication_options(existing_credentials: list = None):
+    options = generate_authentication_options(
+        rp_id=RP_ID,
+        allow_credentials=existing_credentials or [],
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+    return options_to_json(options)

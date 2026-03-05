@@ -2,19 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, RefreshCw, Star, Trash2, MailOpen, Inbox as InboxIcon, Mail } from 'lucide-react';
+import { Search, RefreshCw, Star, Trash2, MailOpen, Inbox as InboxIcon, Mail, Shield, Lock, Eye, EyeOff, Cpu, HardDrive, Smartphone } from 'lucide-react';
+import { clsx } from 'clsx';
 
 const Inbox = () => {
     const [emails, setEmails] = useState({});
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [devices, setDevices] = useState([]);
     const navigate = useNavigate();
 
     const fetchEmails = async () => {
         setLoading(true);
         try {
-            const response = await api.get('/api/emails');
-            setEmails(response.data);
+            const [emailsRes, devicesRes] = await Promise.all([
+                api.get('/api/emails'),
+                api.get('/api/devices')
+            ]);
+            setEmails(emailsRes.data);
+            setDevices(devicesRes.data);
         } catch (err) {
             console.error('Failed to fetch emails', err);
         } finally {
@@ -26,15 +32,50 @@ const Inbox = () => {
         fetchEmails();
     }, []);
 
+    const parseSubject = (emailData) => {
+        const lines = emailData.split('\n');
+        for (const line of lines) {
+            if (line.startsWith('Subject:')) {
+                return line.replace('Subject:', '').trim();
+            }
+        }
+        return 'No Subject';
+    };
+
     const sortedEmails = Object.values(emails).sort((a, b) => b.time - a.time);
     const filteredEmails = sortedEmails.filter(email =>
         email.sender_username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        email.uuid.toLowerCase().includes(searchTerm.toLowerCase())
+        email.uuid.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        parseSubject(email.data).toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const activeDevices = devices.filter(d => d.is_active).length;
+
     return (
-        <div className="space-y-6">
-            <header className="flex items-center justify-between mb-8">
+        <div className="space-y-6 pb-20">
+            {/* Security Status Bar */}
+            <div className="glass-card p-4 flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2 text-green-400">
+                        <Shield size={16} />
+                        <span className="text-xs font-bold uppercase">E2E Encrypted</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-blue-400">
+                        <Lock size={16} />
+                        <span className="text-xs font-bold uppercase">Zero-Knowledge</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-purple-400">
+                        <Smartphone size={16} />
+                        <span className="text-xs font-bold uppercase">{activeDevices} Device{activeDevices !== 1 ? 's' : ''}</span>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-premium-secondary">
+                    <Cpu size={14} />
+                    <span>Client-side decryption active</span>
+                </div>
+            </div>
+
+            <header className="flex items-center justify-between pb-4 border-b border-white/5">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">Personal Inbox</h2>
                     <p className="text-premium-secondary mt-1">Manage your corporate encrypted communications</p>
@@ -65,6 +106,7 @@ const Inbox = () => {
                             <tr className="border-b border-white/5 bg-white/5">
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-premium-secondary">Sender</th>
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-premium-secondary">Subject / ID</th>
+                                <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-premium-secondary">Encryption</th>
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-premium-secondary">Status</th>
                                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-premium-secondary text-right">Time</th>
                             </tr>
@@ -88,17 +130,25 @@ const Inbox = () => {
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="text-sm font-semibold truncate max-w-md">
-                                                {email.uuid}
+                                                {parseSubject(email.data)}
                                             </div>
+                                            <div className="text-xs text-premium-secondary truncate max-w-md">
+                                                ID: {email.uuid.slice(0, 8)}...
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className="flex items-center gap-1.5 text-xs text-green-400 font-bold">
+                                                <Lock size={12} /> AES-256
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4">
                                             {email.read ? (
                                                 <span className="flex items-center gap-2 text-xs text-premium-secondary">
-                                                    <MailOpen className="w-4 h-4" /> Read
+                                                    <EyeOff className="w-4 h-4" /> Read
                                                 </span>
                                             ) : (
                                                 <span className="flex items-center gap-2 text-xs text-premium-accent font-bold">
-                                                    <Mail className="w-4 h-4" /> Unread
+                                                    <Eye className="w-4 h-4" /> Unread
                                                 </span>
                                             )}
                                         </td>
@@ -129,5 +179,3 @@ const Inbox = () => {
 };
 
 export default Inbox;
-
-import { clsx } from 'clsx';

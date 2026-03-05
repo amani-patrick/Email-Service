@@ -2,7 +2,7 @@ from typing import Annotated, Optional
 from fastapi import HTTPException, Header, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, create_engine, select, SQLModel
-from model import User, Email, Attachment
+from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential
 import jwt
 import os
 from datetime import datetime, timedelta
@@ -69,6 +69,16 @@ async def request_user(
 async def get_user(username: str, session: Session) -> User:
     user = session.exec(select(User).where(User.username == username)).first()
     if user is None:
+        # Check if it's a burn address
+        burn = session.exec(select(BurnAddress).where(BurnAddress.address == username, BurnAddress.is_active == True)).first()
+        if burn:
+            # Check if expired
+            if burn.expires_at < datetime.now():
+                burn.is_active = False
+                session.add(burn)
+                session.commit()
+                raise HTTPException(status_code=404, detail="Burn address expired")
+            return session.exec(select(User).where(User.username == burn.owner_username)).first()
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
@@ -232,3 +242,52 @@ async def reset_user_data(username: str, new_password_hash: str, session: Sessio
         session.commit()
         return True
     return False
+
+# Burn Addresses
+async def create_burn_address(user: User, address: str, expires_in_hours: int, session: Session):
+    expires_at = datetime.now() + timedelta(hours=expires_in_hours)
+    burn = BurnAddress(address=address, owner_username=user.username, expires_at=expires_at)
+    session.add(burn)
+    session.commit()
+    session.refresh(burn)
+    return burn
+
+async def get_user_burn_addresses(user: User, session: Session):
+    return session.exec(select(BurnAddress).where(BurnAddress.owner_username == user.username, BurnAddress.is_active == True)).all()
+
+# Private Drive
+async def add_drive_file(user: User, file_uuid: str, filename: str, mime_type: str, size: int, storage_path: str, encrypted_key: str, session: Session):
+    drive_file = DriveFile(
+        uuid=file_uuid,
+        owner_username=user.username,
+        filename=filename,
+        mime_type=mime_type,
+        size=size,
+        storage_path=storage_path,
+        encrypted_key=encrypted_key
+    )
+    user.storage_used += size
+    session.add(drive_file)
+    session.add(user)
+    session.commit()
+    session.refresh(drive_file)
+    return drive_file
+
+async def get_drive_files(user: User, session: Session):
+    return session.exec(select(DriveFile).where(DriveFile.owner_username == user.username)).all()
+
+# WebAuthn
+async def add_webauthn_credential(user: User, credential_id: str, public_key: str, transports: Optional[str], session: Session):
+    cred = WebAuthnCredential(
+        user_username=user.username,
+        credential_id=credential_id,
+        public_key=public_key,
+        transports=transports
+    )
+    session.add(cred)
+    session.commit()
+    session.refresh(cred)
+    return cred
+
+async def get_user_credentials(username: str, session: Session):
+    return session.exec(select(WebAuthnCredential).where(WebAuthnCredential.user_username == username)).all()

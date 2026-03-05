@@ -10,10 +10,16 @@ import {
     Settings as SettingsIcon
 } from 'lucide-react';
 
+const STAT_ICON_STYLES = {
+    'premium-accent': { wrap: 'bg-premium-accent/10 text-premium-accent' },
+    'blue-400': { wrap: 'bg-blue-400/10 text-blue-400' },
+    'purple-400': { wrap: 'bg-purple-400/10 text-purple-400' }
+};
+
 const StatCard = ({ title, value, subtext, icon: Icon, color, to }) => (
     <div className="glass-card p-6 flex flex-col h-full group hover:border-premium-accent/30 transition-all duration-300">
         <div className="flex justify-between items-start mb-6">
-            <div className={`p-3 rounded-xl bg-${color}/10 text-${color}`}>
+            <div className={`p-3 rounded-xl ${STAT_ICON_STYLES[color]?.wrap || 'bg-white/10 text-premium-text'}`}>
                 <Icon size={24} />
             </div>
             {to && (

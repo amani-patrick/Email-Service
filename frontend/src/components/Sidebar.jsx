@@ -7,7 +7,10 @@ import {
     Settings,
     ShieldAlert,
     User,
-    LogOut
+    LogOut,
+    HardDrive,
+    Flame,
+    Image as ImageIcon
 } from 'lucide-react';
 
 const SidebarItem = ({ to, icon: Icon, label }) => (
@@ -40,8 +43,20 @@ const Sidebar = ({ user, onLogout }) => {
                     <SidebarItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
                     <SidebarItem to="/inbox" icon={Inbox} label="Inbox" />
                     <SidebarItem to="/compose" icon={Send} label="Compose Email" />
-                    <SidebarItem to="/settings" icon={Settings} label="Account Settings" />
-                    <SidebarItem to="/profile" icon={User} label="Profile" />
+
+                    <div className="pt-4 mt-4 border-t border-white/5 space-y-2">
+                        <p className="px-4 mb-2 text-[10px] uppercase tracking-widest font-black text-premium-secondary opacity-50">
+                            Premium Tools
+                        </p>
+                        <SidebarItem to="/drive" icon={HardDrive} label="Private Drive" />
+                        <SidebarItem to="/burn-addresses" icon={Flame} label="Burn Addresses" />
+                        <SidebarItem to="/steganography" icon={ImageIcon} label="Stego Vault" />
+                    </div>
+
+                    <div className="pt-4 mt-4 border-t border-white/5 space-y-2">
+                        <SidebarItem to="/settings" icon={Settings} label="Account Settings" />
+                        <SidebarItem to="/profile" icon={User} label="Profile" />
+                    </div>
 
                     {user?.is_admin && (
                         <div className="pt-6 mt-6 border-t border-white/5 space-y-2">

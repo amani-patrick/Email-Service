@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import api from '../api';
+import { useNavigate } from 'react-router-dom';
+import { webauthnRegisterOptions, webauthnRegisterVerify } from '../api';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, CreditCard, Shield, Zap, Check, ArrowRight, Loader2, Wallet, X, XCircle, CheckCircle, Info } from 'lucide-react';
+import { Settings as SettingsIcon, CreditCard, Shield, Zap, Check, ArrowRight, Loader2, Wallet, X, XCircle, CheckCircle, Info, Fingerprint } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 
 const PricingCard = ({ tier, limit, price, features, current, onUpgrade }) => (
@@ -46,22 +47,62 @@ const PricingCard = ({ tier, limit, price, features, current, onUpgrade }) => (
 );
 
 const Settings = ({ user }) => {
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [notification, setNotification] = useState(null);
 
-    const handleUpgrade = async (tier) => {
+    const handleUpgrade = (tier) => {
+        navigate('/upgrade', { state: { tier } });
+    };
+
+    const handleRegisterBiometric = async () => {
         setLoading(true);
+        setNotification(null);
         try {
-            const res = await api.post('/api/create-checkout-session', { tier });
-            if (res.data.url) {
-                window.location.href = res.data.url;
-            }
+            const { data: options } = await webauthnRegisterOptions();
+
+            const base64ToBuffer = (base64) => {
+                const bin = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
+                const buffer = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) buffer[i] = bin.charCodeAt(i);
+                return buffer;
+            };
+
+            const bufferToBase64 = (buffer) => {
+                return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+                    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+            };
+
+            const publicKeyOptions = {
+                ...options,
+                challenge: base64ToBuffer(options.challenge),
+                user: {
+                    ...options.user,
+                    id: base64ToBuffer(options.user.id)
+                },
+                excludeCredentials: options.excludeCredentials.map(c => ({
+                    ...c,
+                    id: base64ToBuffer(c.id)
+                }))
+            };
+
+            const credential = await navigator.credentials.create({ publicKey: publicKeyOptions });
+
+            const response = {
+                id: credential.id,
+                rawId: bufferToBase64(credential.rawId),
+                type: credential.type,
+                response: {
+                    attestationObject: bufferToBase64(credential.response.attestationObject),
+                    clientDataJSON: bufferToBase64(credential.response.clientDataJSON)
+                }
+            };
+
+            await webauthnRegisterVerify(response);
+            setNotification({ type: 'success', message: 'Biometric device registered successfully!' });
         } catch (err) {
-            console.error('Upgrade failed', err);
-            setNotification({
-                type: 'error',
-                message: 'Payment system error. Please try again later.'
-            });
+            console.error('Biometric Registration Error:', err);
+            setNotification({ type: 'error', message: 'Biometric registration failed.' });
         } finally {
             setLoading(false);
         }
@@ -69,7 +110,7 @@ const Settings = ({ user }) => {
 
     return (
         <div className="max-w-6xl mx-auto space-y-12 pb-20">
-            <header className="flex items-center justify-between">
+            <header className="flex items-center justify-between pb-4 border-b border-white/5">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight">Account Configuration</h2>
                     <p className="text-premium-secondary mt-1">Manage your subscriptions and security parameters</p>
@@ -92,10 +133,10 @@ const Settings = ({ user }) => {
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9, y: 20 }}
                         className={`fixed bottom-8 right-8 z-[100] p-4 rounded-2xl border backdrop-blur-xl shadow-2xl flex items-center gap-4 min-w-[320px] ${notification.type === 'error'
-                                ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                                : notification.type === 'success'
-                                    ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                                    : 'bg-premium-accent/10 border-premium-accent/20 text-premium-accent'
+                            ? 'bg-red-500/10 border-red-500/20 text-red-400'
+                            : notification.type === 'success'
+                                ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                                : 'bg-premium-accent/10 border-premium-accent/20 text-premium-accent'
                             }`}
                     >
                         <div className={`p-2 rounded-lg ${notification.type === 'error' ? 'bg-red-500/20' : notification.type === 'success' ? 'bg-green-500/20' : 'bg-premium-accent/20'
@@ -177,6 +218,30 @@ const Settings = ({ user }) => {
                     </div>
                     <button className="premium-btn px-6 border-white/10 bg-transparent hover:bg-white/5">
                         Generate Invoice
+                    </button>
+                </div>
+            </section>
+
+            <section className="space-y-6 pt-12 border-t border-white/5">
+                <div className="flex items-center gap-2">
+                    <Fingerprint className="text-premium-accent" size={24} />
+                    <h3 className="text-xl font-bold">Biometric Security</h3>
+                </div>
+                <div className="glass-card p-8 flex items-center justify-between border border-premium-accent/20 bg-premium-accent/5">
+                    <div className="space-y-2">
+                        <h4 className="font-bold flex items-center gap-2">
+                            Physical Identity Link
+                            <span className="text-[10px] bg-premium-accent text-premium-bg px-2 py-0.5 rounded font-black uppercase">Premium Only</span>
+                        </h4>
+                        <p className="text-sm text-premium-secondary">Enable FaceID, TouchID, or YubiKey for physical-layer security. Replace password prompts with biometric verification.</p>
+                    </div>
+                    <button
+                        onClick={handleRegisterBiometric}
+                        disabled={loading || user?.tier === 'Free'}
+                        className="premium-btn px-8 flex items-center gap-2 disabled:opacity-30"
+                    >
+                        {loading ? <Loader2 className="animate-spin" size={18} /> : <Fingerprint size={18} />}
+                        Register Device
                     </button>
                 </div>
             </section>

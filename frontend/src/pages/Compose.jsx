@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, User, Tag, FileText, Loader2, CheckCircle, Lock, ShieldCheck, ShieldAlert, Paperclip, X, File, AlertCircle, Info, XCircle } from 'lucide-react';
+import { Send, User, Tag, FileText, Loader2, CheckCircle, Lock, ShieldCheck, ShieldAlert, Paperclip, X, File, AlertCircle, Info, XCircle, Zap } from 'lucide-react';
 import { encryptMessage, importKey, generateFileKey, encryptFile, exportFileKey } from '../crypto';
 
-const Compose = () => {
+const Compose = ({ user }) => {
     const [to, setTo] = useState('');
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
@@ -151,7 +151,7 @@ const Compose = () => {
     }
 
     return (
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-3xl mx-auto pb-20">
             <header className="mb-10">
                 <h2 className="text-3xl font-bold tracking-tight">Compose Message</h2>
                 <p className="text-premium-secondary mt-1">Enterprise-grade end-to-end encrypted messaging</p>

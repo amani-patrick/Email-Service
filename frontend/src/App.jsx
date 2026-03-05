@@ -5,6 +5,7 @@ import api from './api';
 // Pages
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
+import LearnMore from './pages/LearnMore';
 import Dashboard from './pages/Dashboard';
 import Inbox from './pages/Inbox';
 import Compose from './pages/Compose';
@@ -12,6 +13,11 @@ import Settings from './pages/Settings';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import EmailDetails from './pages/EmailDetails';
+import Upgrade from './pages/Upgrade';
+import PaymentSuccess from './pages/PaymentSuccess';
+import BurnAddresses from './pages/BurnAddresses';
+import Drive from './pages/Drive';
+import Steganography from './pages/Steganography';
 
 // Components
 import Layout from './components/Layout';
@@ -71,6 +77,7 @@ const App = () => {
                 {/* Public Routes */}
                 <Route path="/" element={token ? <Navigate to="/dashboard" /> : <LandingPage />} />
                 <Route path="/login" element={token ? <Navigate to="/dashboard" /> : <Login setToken={setToken} />} />
+                <Route path="/learn" element={<LearnMore />} />
 
                 {/* Protected Routes */}
                 <Route path="/dashboard" element={
@@ -84,6 +91,21 @@ const App = () => {
                 } />
                 <Route path="/settings" element={
                     token ? <Layout user={user} setToken={setToken}><Settings user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/upgrade" element={
+                    token ? <Layout user={user} setToken={setToken}><Upgrade user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/payment-success" element={
+                    token ? <Layout user={user} setToken={setToken}><PaymentSuccess user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/drive" element={
+                    token ? <Layout user={user} setToken={setToken}><Drive user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/burn-addresses" element={
+                    token ? <Layout user={user} setToken={setToken}><BurnAddresses user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/steganography" element={
+                    token ? <Layout user={user} setToken={setToken}><Steganography user={user} /></Layout> : <Navigate to="/login" />
                 } />
                 <Route path="/profile" element={
                     token ? <Layout user={user} setToken={setToken}><Profile user={user} /></Layout> : <Navigate to="/login" />

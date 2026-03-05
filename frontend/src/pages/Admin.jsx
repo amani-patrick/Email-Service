@@ -1,23 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
 import { motion } from 'framer-motion';
-import { Users, Server, HardDrive, ShieldAlert, CheckCircle2, XCircle, Key, Calendar, Upload, AlertTriangle } from 'lucide-react';
+import { Users, Server, HardDrive, ShieldAlert, CheckCircle2, XCircle, Key, Calendar, Upload, AlertTriangle, FileText, Globe, Clock } from 'lucide-react';
+import { clsx } from 'clsx';
 
 const AdminDashboard = () => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [license, setLicense] = useState(null);
     const [uploading, setUploading] = useState(false);
+    const [auditLogs, setAuditLogs] = useState([]);
+    const [domains, setDomains] = useState([]);
+    const [activeTab, setActiveTab] = useState('users');
 
     useEffect(() => {
         const fetchAdminData = async () => {
             try {
-                const [usersRes, licenseRes] = await Promise.all([
+                const [usersRes, licenseRes, auditRes] = await Promise.all([
                     api.get('/api/admin/users'),
-                    api.get('/api/admin/license/status')
+                    api.get('/api/admin/license/status'),
+                    api.get('/api/admin/audit-logs?limit=50')
                 ]);
                 setUsers(usersRes.data);
                 setLicense(licenseRes.data);
+                setAuditLogs(auditRes.data);
             } catch (err) {
                 console.error('Failed to fetch admin data', err);
             } finally {
@@ -55,7 +61,7 @@ const AdminDashboard = () => {
 
     return (
         <div className="space-y-8">
-            <header>
+            <header className="pb-4 border-b border-white/5">
                 <h2 className="text-3xl font-bold tracking-tight flex items-center gap-3">
                     <ShieldAlert className="text-red-500" /> Enterprise Management
                 </h2>
@@ -214,10 +220,52 @@ const AdminDashboard = () => {
                     </table>
                 </div>
             </div>
+
+            {/* Audit Logs Section */}
+            <div className="glass-card overflow-hidden">
+                <div className="p-6 border-b border-white/5 bg-white/5 font-bold uppercase text-xs tracking-widest text-premium-secondary flex items-center gap-2">
+                    <FileText size={16} /> Audit Logs
+                </div>
+                <div className="overflow-x-auto max-h-96">
+                    <table className="w-full text-left">
+                        <thead>
+                            <tr className="text-xs text-premium-secondary uppercase border-b border-white/5 sticky top-0 bg-premium-bg">
+                                <th className="px-6 py-4">Timestamp</th>
+                                <th className="px-6 py-4">Actor</th>
+                                <th className="px-6 py-4">Action</th>
+                                <th className="px-6 py-4">Target</th>
+                                <th className="px-6 py-4">IP</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {auditLogs.map((log) => (
+                                <tr key={log.id} className="border-b border-white/5 hover:bg-white/5 transition-colors text-sm">
+                                    <td className="px-6 py-3 font-mono text-xs">
+                                        {new Date(log.timestamp).toLocaleString()}
+                                    </td>
+                                    <td className="px-6 py-3">{log.actor_username}</td>
+                                    <td className="px-6 py-3">
+                                        <span className={clsx(
+                                            "px-2 py-1 rounded text-[10px] font-bold uppercase",
+                                            log.action.includes('revoked') || log.action.includes('deleted') 
+                                                ? "bg-red-500/20 text-red-400"
+                                                : log.action.includes('created') || log.action.includes('registered')
+                                                    ? "bg-green-500/20 text-green-400"
+                                                    : "bg-blue-500/20 text-blue-400"
+                                        )}>
+                                            {log.action.replace(/_/g, ' ')}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-3 text-premium-secondary">{log.target || '-'}</td>
+                                    <td className="px-6 py-3 text-premium-secondary font-mono text-xs">{log.ip_address || '-'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     );
 };
 
 export default AdminDashboard;
-
-import { clsx } from 'clsx';

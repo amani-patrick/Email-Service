@@ -19,7 +19,7 @@ const StatCard = ({ icon: Icon, label, value, subtext }) => (
 const Profile = ({ user }) => {
     return (
         <div className="max-w-4xl mx-auto space-y-10 pb-20">
-            <header className="flex items-center gap-6">
+            <header className="flex items-center gap-6 pb-6 border-b border-white/5">
                 <div className="w-24 h-24 rounded-3xl bg-premium-accent overflow-hidden flex items-center justify-center text-premium-bg text-4xl font-bold border-4 border-premium-card shadow-2xl">
                     {user?.username[0].toUpperCase()}
                 </div>

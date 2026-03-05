@@ -8,3 +8,8 @@ sqlmodel==0.0.22
 pyjwt==2.10.1
 passlib==1.7.4
 bcrypt==3.2.0
+dnspython==2.7.0
+dkimpy==1.0.6
+webauthn==2.3.0
+stepic==0.5.0
+Pillow==11.1.0

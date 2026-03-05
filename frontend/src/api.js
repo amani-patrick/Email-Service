@@ -60,4 +60,26 @@ export const requireLogin = async () => {
   }
 };
 
+// WebAuthn
+export const webauthnRegisterOptions = () => api.post('/api/webauthn/register/options');
+export const webauthnRegisterVerify = (response) => api.post('/api/webauthn/register/verify', response);
+export const webauthnLoginOptions = (username) => api.post('/api/webauthn/login/options', { username });
+export const webauthnLoginVerify = (username, response) => api.post('/api/webauthn/login/verify', { username, response });
+
+// Burn Addresses
+export const createBurnAddress = () => api.post('/api/burn-addresses/create');
+export const getBurnAddresses = () => api.get('/api/burn-addresses');
+
+// Private Drive
+export const uploadDrive = (formData) => api.post('/api/drive/upload', formData);
+export const getDriveFiles = () => api.get('/api/drive/files');
+export const downloadDrive = (fileUuid) => api.get(`/api/drive/download/${fileUuid}`, { responseType: 'blob' });
+
+// Steganography
+export const stegoHide = (formData) => api.post('/api/steganography/hide', formData);
+export const stegoExtract = (formData) => api.post('/api/steganography/extract', formData);
+
+// Upgrade
+export const upgradeTier = (tier) => api.post('/api/confirm-upgrade', { tier });
+
 export default api;
