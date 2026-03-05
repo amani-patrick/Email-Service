@@ -61,7 +61,7 @@ class Email(SQLModel, table=True):
     data: str
     size: int = Field(default=0) # Size in bytes
     
-    recipient_username: str = Field(foreign_key="user.username")
+    recipient_username: str = Field(index=True)
     sender_username: str
     
     attachments: List["Attachment"] = Relationship(back_populates="email")

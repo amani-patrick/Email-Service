@@ -2,15 +2,16 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, CreditCard, Lock, Check, X, Shield, Zap, Loader2, ChevronRight, Info, Wallet } from 'lucide-react';
+import { ArrowLeft, CreditCard, Lock, Check, X, Shield, Zap, Loader2, ChevronRight, Info, Wallet, ArrowRight } from 'lucide-react';
+import Notification from '../components/Notification';
 
 const TIERS = [
   {
     name: 'Starter',
-    limit: '100 emails/mo',
-    price: 9,
+    limit: '100 MB Storage',
+    price: 0,
     features: [
-      'Up to 100 encrypted emails per month',
+      '100 MB secure storage',
       'End-to-end encryption',
       'Secure key management',
       'Basic audit logs',
@@ -20,15 +21,14 @@ const TIERS = [
   },
   {
     name: 'Professional',
-    limit: '1,000 emails/mo',
-    price: 29,
+    limit: '1 GB Storage',
+    price: 12,
     features: [
-      'Up to 1,000 encrypted emails per month',
+      '1 GB secure storage',
+      'End-to-end encrypted Private Drive',
+      'Ephemeral Burn Addresses',
       'Advanced encryption controls',
       'Priority email delivery',
-      'Detailed audit logs',
-      'Email attachments up to 25MB',
-      'Team collaboration tools',
       'Custom email domains'
     ],
     color: 'from-purple-500 to-pink-500',
@@ -36,18 +36,15 @@ const TIERS = [
   },
   {
     name: 'Enterprise',
-    limit: 'Unlimited',
-    price: 99,
+    limit: '10 GB Storage',
+    price: 49,
     features: [
-      'Unlimited encrypted emails',
-      'Military-grade encryption',
+      '10 GB secure storage',
+      'Military-grade Stego Vault',
       'Dedicated infrastructure',
       'Real-time monitoring',
-      'Unlimited attachments',
       'Advanced team management',
-      'Custom integrations',
-      '24/7 priority support',
-      'SLA guarantees'
+      '24/7 priority support'
     ],
     color: 'from-amber-500 to-orange-500'
   }
@@ -93,13 +90,12 @@ const PaymentForm = ({ tier, onBack, onSuccess }) => {
     try {
       // Mock payment processing
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // Call backend upgrade endpoint
-      await api.post('/api/upgrade', { 
-        tier: tier.name,
-        paymentMethod: 'card'
+      await api.post('/api/confirm-upgrade', {
+        tier: tier.name
       });
-      
+
       onSuccess();
     } catch (error) {
       console.error('Payment failed:', error);
@@ -261,7 +257,7 @@ const PaymentForm = ({ tier, onBack, onSuccess }) => {
   );
 };
 
-const Upgrade = () => {
+const Upgrade = ({ user, onRefreshUser }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [selectedTier, setSelectedTier] = useState(null);
@@ -284,10 +280,13 @@ const Upgrade = () => {
     setShowPayment(true);
   };
 
-  const handlePaymentSuccess = () => {
-    navigate('/payment-success', { 
+  const handlePaymentSuccess = async () => {
+    if (onRefreshUser) {
+      await onRefreshUser();
+    }
+    navigate('/payment-success', {
       state: { tier: selectedTier.name },
-      replace: true 
+      replace: true
     });
   };
 
@@ -330,12 +329,11 @@ const Upgrade = () => {
                       </div>
                     </div>
                   )}
-                  
-                  <div className={`glass-card p-8 h-full flex flex-col border ${
-                    currentTier === tier.name 
-                      ? 'border-premium-accent ring-1 ring-premium-accent/20' 
-                      : 'border-white/5'
-                  }`}>
+
+                  <div className={`glass-card p-8 h-full flex flex-col border ${currentTier === tier.name
+                    ? 'border-premium-accent ring-1 ring-premium-accent/20'
+                    : 'border-white/5'
+                    }`}>
                     <div className="flex justify-between items-start mb-6">
                       <div>
                         <h3 className="text-2xl font-bold mb-2">{tier.name}</h3>
@@ -367,13 +365,12 @@ const Upgrade = () => {
                     <button
                       onClick={() => handleTierSelect(tier)}
                       disabled={currentTier === tier.name}
-                      className={`w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
-                        currentTier === tier.name
-                          ? 'bg-white/5 text-premium-secondary cursor-not-allowed'
-                          : tier.popular
+                      className={`w-full py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${currentTier === tier.name
+                        ? 'bg-white/5 text-premium-secondary cursor-not-allowed'
+                        : tier.popular
                           ? 'bg-premium-accent text-premium-bg hover:shadow-lg hover:shadow-premium-accent/20 active:scale-95'
                           : 'bg-white/10 text-premium-text hover:bg-white/15 active:scale-95'
-                      }`}
+                        }`}
                     >
                       {currentTier === tier.name ? (
                         'Current Plan'

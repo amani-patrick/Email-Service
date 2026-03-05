@@ -145,15 +145,25 @@ const Login = ({ setToken }) => {
 
                     <form onSubmit={handleSubmit} className="space-y-5">
                         <div className="space-y-2">
-                            <label className="text-sm font-semibold text-premium-secondary">Username</label>
+                            <label className="text-sm font-semibold text-premium-secondary flex justify-between">
+                                Username
+                                {!isLogin && (
+                                    <span className="text-[10px] text-premium-accent uppercase font-black tracking-widest bg-premium-accent/10 px-2 py-0.5 rounded">
+                                        Your address: {username.includes('@') ? username : `${username}@ses`}
+                                    </span>
+                                )}
+                            </label>
                             <input
                                 type="text"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                                 required
                                 className="input-field"
-                                placeholder="user@ses"
+                                placeholder="identity"
                             />
+                            {!isLogin && !username.includes('@') && (
+                                <p className="text-[10px] text-premium-secondary italic">Your identity will be provisioned as <span className="text-white font-bold">{username}@ses</span></p>
+                            )}
                         </div>
 
                         <div className="space-y-2">
@@ -190,11 +200,14 @@ const Login = ({ setToken }) => {
 
                             <button
                                 onClick={handleBiometricLogin}
-                                disabled={loading}
-                                className="w-full flex items-center justify-center gap-3 py-3 rounded-xl border border-premium-accent/30 text-premium-accent font-bold hover:bg-premium-accent/5 transition-all text-sm uppercase tracking-widest"
+                                disabled={loading || !username}
+                                className="w-full flex flex-col items-center justify-center gap-1 py-3 rounded-xl border border-premium-accent/30 text-premium-accent font-bold hover:bg-premium-accent/5 transition-all group disabled:opacity-30"
                             >
-                                <Fingerprint size={20} />
-                                Biometric Login
+                                <div className="flex items-center gap-3">
+                                    <Fingerprint size={20} className="group-hover:scale-110 transition-transform" />
+                                    <span className="text-sm uppercase tracking-widest">Biometric Login</span>
+                                </div>
+                                <span className="text-[8px] uppercase tracking-[0.2em] opacity-40">FaceID • TouchID • Security Key</span>
                             </button>
                         </div>
                     )}

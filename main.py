@@ -158,6 +158,12 @@ async def register(
     session: Session = Depends(db.get_session)
 ):
     try:
+        # Enforce @ses suffix
+        if not username.endswith('@ses'):
+            if '@' in username:
+                raise HTTPException(status_code=400, detail="External domains not supported for main account creation")
+            username = f"{username}@ses"
+        
         # Check if user exists
         existing_user = session.exec(select(User).where(User.username == username)).first()
         if existing_user:
@@ -209,6 +215,13 @@ async def emails(
     session: Session = Depends(db.get_session)
 ) -> dict[str, Email]:
     return await db.get_emails(user, session)
+
+@app.get('/api/devices')
+async def devices(
+    user: Annotated[User, Depends(db.request_user)],
+    session: Session = Depends(db.get_session)
+):
+    return await db.get_user_devices(user, session)
 
 @app.get('/api/email/{email_id}')
 async def email(
@@ -275,17 +288,15 @@ async def send(
     
     # Tier Gating for External Domains
     if not to.endswith('@ses'):
-        if user.tier == "Free":
+        if user.tier not in ["Pro", "Enterprise"]:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="External secure invites are a Pro/Enterprise feature. Please upgrade your account."
             )
         
-        # Simulation: Create a "Guest" account or just skip validation if external
-        if not recipient:
-            # For the simulation, we'll allow sending to external domains by skipping recipient storage
-            # In a real app, this would trigger an SMTP invite.
-            pass
+        # Simulation: Create a Guest simulation or just allow the sent record
+        # This record is critical for linking attachments
+        pass
 
     if not recipient and to.endswith('@ses') and not to.endswith('.burn'): # Basic burn address handling in send
         raise HTTPException(status_code=404, detail=f"Recipient {to} not found in SecureMail network")
@@ -317,11 +328,8 @@ async def send(
 
     email_id = str(uuid.uuid4())
     
-    if recipient:
-        await db.send_email(recipient.username, email_id, msg, user.username, session)
-    else:
-        # Externally dispatched message simulation
-        pass
+    # Always create the email record (internal or external)
+    await db.send_email(to, email_id, msg, user.username, session)
 
     return email_id
 
@@ -419,11 +427,16 @@ async def upload_drive(
     if not os.path.exists(upload_dir):
         os.makedirs(upload_dir)
     
+    content = await file.read()
+    file_size = len(content)
+    if user.storage_used + file_size > user.storage_limit:
+        raise HTTPException(status_code=402, detail="Storage limit exceeded. Upgrade to Private Drive Pro.")
+
     file_uuid = str(uuid.uuid4())
     file_path = os.path.join(upload_dir, file_uuid)
     
     with open(file_path, "wb") as f:
-        f.write(await file.read())
+        f.write(content)
     
     drive_file = await db.add_drive_file(
         user=user,
@@ -468,8 +481,8 @@ async def hide_msg(
     message: Annotated[str, Form()],
     image: UploadFile = File(...)
 ):
-    if user.tier == "Free":
-        raise HTTPException(status_code=402, detail="Steganography is a Premium feature")
+    if user.tier not in ["Pro", "Enterprise"]:
+        raise HTTPException(status_code=402, detail="Steganography is a Premium feature (Pro/Enterprise required)")
         
     image_bytes = await image.read()
     try:
@@ -540,11 +553,14 @@ async def upload_attachment(
     if not os.path.exists(upload_dir):
         os.makedirs(upload_dir)
     
+    content = await file.read()
+    file_size = len(content)
+    
     attachment_uuid = str(uuid.uuid4())
     file_path = os.path.join(upload_dir, attachment_uuid)
     
     with open(file_path, "wb") as f:
-        f.write(await file.read())
+        f.write(content)
     
     await db.add_attachment(
         email_id=email.id,
@@ -599,13 +615,21 @@ async def confirm_upgrade(
     tier: str = Body(embed=True),
     session: Session = Depends(db.get_session)
 ):
+    # Map frontend names to backend names if necessary
+    tier_map = {
+        "Starter": "Free",
+        "Professional": "Pro",
+        "Enterprise": "Enterprise"
+    }
+    mapped_tier = tier_map.get(tier, tier)
+
     limits = {
         "Free": 104857600,
         "Pro": 1073741824,
         "Enterprise": 10737418240
     }
-    await db.update_user_tier(user.username, tier, limits.get(tier, 104857600), session)
-    return {"status": "upgraded"}
+    await db.update_user_tier(user.username, mapped_tier, limits.get(mapped_tier, 104857600), session)
+    return {"status": "upgraded", "tier": mapped_tier}
 
 @app.get('/api/root_cert')
 async def root_cert():

@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { getDriveFiles, uploadDrive, downloadDrive } from '../api';
-import { HardDrive, Upload, Download, FileText, Trash2, Shield, Lock } from 'lucide-react';
+import { HardDrive, Upload, Download, FileText, Trash2, Shield, Lock, Info } from 'lucide-react';
+import Notification from '../components/Notification';
 
-const Drive = () => {
+const Drive = ({ user }) => {
     const [files, setFiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [notification, setNotification] = useState(null);
+
+    const showNotification = (message, type = 'info') => {
+        setNotification({ message, type });
+    };
 
     useEffect(() => {
         fetchFiles();
@@ -16,7 +22,7 @@ const Drive = () => {
             const { data } = await getDriveFiles();
             setFiles(data);
         } catch (error) {
-            console.error('Failed to fetch drive files:', error);
+            showNotification('Failed to fetch drive files', 'error');
         } finally {
             setLoading(false);
         }
@@ -34,9 +40,11 @@ const Drive = () => {
             formData.append('encrypted_key', 'mock_encrypted_key');
 
             await uploadDrive(formData);
+            showNotification('File uploaded successfully', 'success');
             await fetchFiles();
         } catch (error) {
-            alert('Upload failed. Ensure you have storage quota.');
+            const detail = error.response?.data?.detail || 'Upload failed';
+            showNotification(detail, 'error');
         } finally {
             setUploading(false);
         }
@@ -51,13 +59,21 @@ const Drive = () => {
             link.setAttribute('download', filename);
             document.body.appendChild(link);
             link.click();
+            showNotification('Download started', 'success');
         } catch (error) {
-            alert('Download failed.');
+            showNotification('Download failed', 'error');
         }
     };
 
     return (
         <div className="max-w-6xl mx-auto p-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification(null)}
+                />
+            )}
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-3xl font-black text-white tracking-tighter mb-2 italic">
@@ -65,7 +81,21 @@ const Drive = () => {
                     </h1>
                     <p className="text-premium-secondary font-medium tracking-tight">Zero-knowledge encrypted file storage.</p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-6">
+                    <div className="text-right hidden md:block">
+                        <p className="text-[10px] uppercase font-black tracking-widest text-premium-secondary mb-1">Storage Usage</p>
+                        <div className="flex items-center gap-3">
+                            <div className="w-32 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-premium-accent"
+                                    style={{ width: `${Math.min(100, (user?.storage_used / user?.storage_limit) * 100)}%` }}
+                                />
+                            </div>
+                            <span className="text-[10px] font-bold text-white whitespace-nowrap">
+                                {(user?.storage_used / 1024 / 1024).toFixed(1)} / {(user?.storage_limit / 1024 / 1024).toFixed(0)} MB
+                            </span>
+                        </div>
+                    </div>
                     <label className="flex items-center gap-2 bg-premium-accent text-premium-bg px-6 py-3 rounded-xl font-bold hover:scale-105 transition-transform shadow-xl shadow-premium-accent/20 cursor-pointer uppercase tracking-widest text-xs">
                         <Upload size={20} />
                         {uploading ? 'UPLOADING...' : 'UPLOAD FILE'}

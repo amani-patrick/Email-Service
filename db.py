@@ -2,7 +2,7 @@ from typing import Annotated, Optional
 from fastapi import HTTPException, Header, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, create_engine, select, SQLModel
-from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential
+from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential, DeviceKey
 import jwt
 import os
 from datetime import datetime, timedelta
@@ -109,15 +109,13 @@ async def mark_read(user: User, email_id: str, session: Session) -> bool:
     return False
 
 async def send_email(recipient_username: str, email_id: str, raw: str, sender_username: str, session: Session):
-    # Fetch recipient
+    # Fetch recipient user (if internal)
     recipient = session.exec(select(User).where(User.username == recipient_username)).first()
-    if not recipient:
-        raise HTTPException(status_code=404, detail="Recipient not found")
     
     email_size = len(raw.encode('utf-8'))
     
-    # Check quota
-    if recipient.storage_used + email_size > recipient.storage_limit:
+    # Check quota ONLY for internal users
+    if recipient and recipient.storage_used + email_size > recipient.storage_limit:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=f"Recipient storage quota exceeded ({recipient.username})"
@@ -131,9 +129,11 @@ async def send_email(recipient_username: str, email_id: str, raw: str, sender_us
         size=email_size
     )
     
-    # Update recipient's used storage
-    recipient.storage_used += email_size
-    session.add(recipient)
+    # Update recipient's used storage if internal
+    if recipient:
+        recipient.storage_used += email_size
+        session.add(recipient)
+        
     session.add(email)
     session.commit()
     session.refresh(email)
@@ -291,3 +291,5 @@ async def add_webauthn_credential(user: User, credential_id: str, public_key: st
 
 async def get_user_credentials(username: str, session: Session):
     return session.exec(select(WebAuthnCredential).where(WebAuthnCredential.user_username == username)).all()
+async def get_user_devices(user: User, session: Session):
+    return session.exec(select(DeviceKey).where(DeviceKey.user_username == user.username)).all()

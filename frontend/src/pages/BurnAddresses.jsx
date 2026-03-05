@@ -1,10 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { getBurnAddresses, createBurnAddress } from '../api';
-import { Flame, Plus, Clock, ShieldCheck, Copy } from 'lucide-react';
+import { Flame, Plus, Clock, ShieldCheck, Copy, Info } from 'lucide-react';
+import Notification from '../components/Notification';
 
 const BurnAddresses = () => {
     const [addresses, setAddresses] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [notification, setNotification] = useState(null);
+
+    const showNotification = (message, type = 'info') => {
+        setNotification({ message, type });
+    };
 
     useEffect(() => {
         fetchAddresses();
@@ -15,7 +21,7 @@ const BurnAddresses = () => {
             const { data } = await getBurnAddresses();
             setAddresses(data);
         } catch (error) {
-            console.error('Failed to fetch burn addresses:', error);
+            showNotification('Failed to fetch addresses', 'error');
         } finally {
             setLoading(false);
         }
@@ -24,19 +30,27 @@ const BurnAddresses = () => {
     const handleCreate = async () => {
         try {
             await createBurnAddress();
+            showNotification('Burn address created', 'success');
             await fetchAddresses();
         } catch (error) {
-            alert('Failed to create burn address. Ensure you have a Premium subscription.');
+            showNotification('Failed to create address. Upgrade to Premium.', 'error');
         }
     };
 
     const copyToClipboard = (text) => {
         navigator.clipboard.writeText(text);
-        alert('Copied to clipboard!');
+        showNotification('Copied to clipboard', 'info');
     };
 
     return (
         <div className="max-w-6xl mx-auto p-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification(null)}
+                />
+            )}
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-3xl font-black text-white tracking-tighter mb-2 italic">

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../api';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, User, Tag, FileText, Loader2, CheckCircle, Lock, ShieldCheck, ShieldAlert, Paperclip, X, File, AlertCircle, Info, XCircle, Zap } from 'lucide-react';
+import { Send, User, Tag, FileText, Loader2, CheckCircle, Lock, ShieldCheck, ShieldAlert, Paperclip, X, File as FileIcon, AlertCircle, Info, XCircle, Zap } from 'lucide-react';
 import { encryptMessage, importKey, generateFileKey, encryptFile, exportFileKey } from '../crypto';
 
 const Compose = ({ user }) => {
@@ -15,6 +15,15 @@ const Compose = ({ user }) => {
     const [encryptionStatus, setEncryptionStatus] = useState('idle'); // idle, checking, secure, insecure, external
     const [notification, setNotification] = useState(null); // { type: 'success' | 'error' | 'info', message: str }
     const navigate = useNavigate();
+    const location = useLocation();
+
+    React.useEffect(() => {
+        if (location.state?.stegoFile) {
+            setAttachments([location.state.stegoFile]);
+            setSubject('Locked Secure Image Message');
+            setBody('This email contains a secure message hidden inside the attached image.\n\nTo view the secret:\n1. Download the attached image\n2. Go to the "Stego Vault"\n3. Use "Extract Message" with the downloaded image.');
+        }
+    }, [location.state]);
 
     const checkPublicKey = async (username) => {
         if (!username) {
@@ -265,7 +274,7 @@ const Compose = ({ user }) => {
                                     exit={{ scale: 0.8, opacity: 0 }}
                                     className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-2 rounded-xl group"
                                 >
-                                    <File size={14} className="text-premium-accent" />
+                                    <FileIcon size={14} className="text-premium-accent" />
                                     <span className="text-xs font-medium max-w-[120px] truncate">{file.name}</span>
                                     <button
                                         type="button"

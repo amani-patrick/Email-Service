@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { stegoHide, stegoExtract } from '../api';
-import { Image as ImageIcon, Wand2, Search, Download, Shield, Eye, EyeOff } from 'lucide-react';
+import { Image as ImageIcon, Wand2, Search, Download, Shield, Eye, EyeOff, Info, Send } from 'lucide-react';
+import Notification from '../components/Notification';
 
 const Steganography = () => {
     const [hideImage, setHideImage] = useState(null);
@@ -10,6 +12,12 @@ const Steganography = () => {
     const [extractedMessage, setExtractedMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('hide');
+    const [notification, setNotification] = useState(null);
+    const navigate = useNavigate();
+
+    const showNotification = (message, type = 'info') => {
+        setNotification({ message, type });
+    };
 
     const handleHide = async (e) => {
         e.preventDefault();
@@ -22,8 +30,9 @@ const Steganography = () => {
             formData.append('message', hideMessage);
             const { data } = await stegoHide(formData);
             setEncodedImage(data.image);
+            showNotification('Message hidden successfully', 'success');
         } catch (error) {
-            alert('Failed to hide message. Ensure you are a Premium user.');
+            showNotification('Failed to hide message. Upgrade to Enterprise.', 'error');
         } finally {
             setLoading(false);
         }
@@ -39,8 +48,9 @@ const Steganography = () => {
             formData.append('image', extractImage);
             const { data } = await stegoExtract(formData);
             setExtractedMessage(data.message);
+            showNotification('Message extracted', 'success');
         } catch (error) {
-            alert('Extraction failed.');
+            showNotification('Extraction failed. Invalid image?', 'error');
         } finally {
             setLoading(false);
         }
@@ -53,8 +63,33 @@ const Steganography = () => {
         link.click();
     };
 
+    const sendStego = () => {
+        const byteString = atob(encodedImage);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) {
+            ia[i] = byteString.charCodeAt(i);
+        }
+        const blob = new Blob([ab], { type: 'image/png' });
+        const file = new File([blob], 'secure_vault_image.png', { type: 'image/png' });
+
+        navigate('/compose', {
+            state: {
+                stegoFile: file,
+                isStego: true
+            }
+        });
+    };
+
     return (
         <div className="max-w-6xl mx-auto p-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {notification && (
+                <Notification
+                    message={notification.message}
+                    type={notification.type}
+                    onClose={() => setNotification(null)}
+                />
+            )}
             <div className="mb-12">
                 <h1 className="text-3xl font-black text-white tracking-tighter mb-2 italic">
                     STEGO <span className="text-premium-accent">VAULT</span>
@@ -66,8 +101,8 @@ const Steganography = () => {
                 <button
                     onClick={() => setActiveTab('hide')}
                     className={`flex-1 flex items-center justify-center gap-3 py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'hide'
-                            ? 'bg-premium-accent text-premium-bg shadow-xl shadow-premium-accent/20'
-                            : 'bg-white/5 text-premium-secondary hover:bg-white/10'
+                        ? 'bg-premium-accent text-premium-bg shadow-xl shadow-premium-accent/20'
+                        : 'bg-white/5 text-premium-secondary hover:bg-white/10'
                         }`}
                 >
                     <EyeOff size={18} />
@@ -76,8 +111,8 @@ const Steganography = () => {
                 <button
                     onClick={() => setActiveTab('extract')}
                     className={`flex-1 flex items-center justify-center gap-3 py-4 rounded-xl font-black uppercase tracking-widest text-xs transition-all ${activeTab === 'extract'
-                            ? 'bg-premium-accent text-premium-bg shadow-xl shadow-premium-accent/20'
-                            : 'bg-white/5 text-premium-secondary hover:bg-white/10'
+                        ? 'bg-premium-accent text-premium-bg shadow-xl shadow-premium-accent/20'
+                        : 'bg-white/5 text-premium-secondary hover:bg-white/10'
                         }`}
                 >
                     <Eye size={18} />
@@ -140,13 +175,22 @@ const Steganography = () => {
                                         </div>
                                     </div>
                                     <h3 className="text-xl font-bold text-white tracking-tight">Stego Packet Ready</h3>
-                                    <button
-                                        onClick={downloadEncoded}
-                                        className="flex items-center gap-2 bg-white/10 text-white px-8 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-white/20 transition-colors mx-auto"
-                                    >
-                                        <Download size={18} />
-                                        Download Protected Image
-                                    </button>
+                                    <div className="flex flex-col gap-3 w-full">
+                                        <button
+                                            onClick={sendStego}
+                                            className="flex items-center justify-center gap-2 bg-premium-accent text-premium-bg px-8 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:scale-[1.05] transition-transform w-full"
+                                        >
+                                            <Send size={18} />
+                                            Send Secure Message
+                                        </button>
+                                        <button
+                                            onClick={downloadEncoded}
+                                            className="flex items-center justify-center gap-2 bg-white/10 text-white px-8 py-3 rounded-xl font-black uppercase tracking-widest text-xs hover:bg-white/20 transition-colors w-full"
+                                        >
+                                            <Download size={18} />
+                                            Download Protected Image
+                                        </button>
+                                    </div>
                                 </div>
                             ) : (
                                 <>

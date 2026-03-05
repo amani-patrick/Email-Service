@@ -216,8 +216,10 @@ def hide_message_in_image(image_bytes: bytes, message: str) -> bytes:
 def extract_message_from_image(image_bytes: bytes) -> str:
     """Extract a hidden message from an image"""
     img = Image.open(io.BytesIO(image_bytes))
-    decoded_bytes = stepic.decode(img)
-    return decoded_bytes.decode('utf-8', errors='replace')
+    decoded = stepic.decode(img)
+    if isinstance(decoded, bytes):
+        return decoded.decode('utf-8', errors='replace')
+    return str(decoded)
 
 # WebAuthn Helpers
 RP_ID = os.environ.get("RP_ID", "localhost")

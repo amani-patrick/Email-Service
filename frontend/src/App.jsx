@@ -93,7 +93,7 @@ const App = () => {
                     token ? <Layout user={user} setToken={setToken}><Settings user={user} /></Layout> : <Navigate to="/login" />
                 } />
                 <Route path="/upgrade" element={
-                    token ? <Layout user={user} setToken={setToken}><Upgrade user={user} /></Layout> : <Navigate to="/login" />
+                    token ? <Layout user={user} setToken={setToken}><Upgrade user={user} onRefreshUser={fetchUser} /></Layout> : <Navigate to="/login" />
                 } />
                 <Route path="/payment-success" element={
                     token ? <Layout user={user} setToken={setToken}><PaymentSuccess user={user} /></Layout> : <Navigate to="/login" />
