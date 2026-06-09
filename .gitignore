@@ -5,5 +5,6 @@ uploads/
 __pycache__/
 venv/
 *.txt
+!requirements.txt
 node_modules/
 *.crt

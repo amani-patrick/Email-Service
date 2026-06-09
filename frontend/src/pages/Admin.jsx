@@ -11,19 +11,25 @@ const AdminDashboard = () => {
     const [uploading, setUploading] = useState(false);
     const [auditLogs, setAuditLogs] = useState([]);
     const [domains, setDomains] = useState([]);
+    const [smtpStatus, setSmtpStatus] = useState(null);
+    const [newDomain, setNewDomain] = useState('');
     const [activeTab, setActiveTab] = useState('users');
 
     useEffect(() => {
         const fetchAdminData = async () => {
             try {
-                const [usersRes, licenseRes, auditRes] = await Promise.all([
+                const [usersRes, licenseRes, auditRes, domainsRes, smtpRes] = await Promise.all([
                     api.get('/api/admin/users'),
                     api.get('/api/admin/license/status'),
-                    api.get('/api/admin/audit-logs?limit=50')
+                    api.get('/api/admin/audit-logs?limit=50'),
+                    api.get('/api/domains'),
+                    api.get('/api/smtp/status'),
                 ]);
                 setUsers(usersRes.data);
                 setLicense(licenseRes.data);
                 setAuditLogs(auditRes.data);
+                setDomains(domainsRes.data);
+                setSmtpStatus(smtpRes.data);
             } catch (err) {
                 console.error('Failed to fetch admin data', err);
             } finally {
@@ -51,7 +57,39 @@ const AdminDashboard = () => {
         }
     };
 
-    const formatSize = (bytes) => {
+    const handleAddDomain = async (e) => {
+        e.preventDefault();
+        if (!newDomain.trim()) return;
+        try {
+            await api.post('/api/domains', newDomain.trim());
+            const res = await api.get('/api/domains');
+            setDomains(res.data);
+            setNewDomain('');
+        } catch (err) {
+            alert('Failed to add domain: ' + (err.response?.data?.detail || err.message));
+        }
+    };
+
+    const handleVerifyDomain = async (domainId) => {
+        try {
+            const res = await api.post(`/api/domains/${domainId}/verify`);
+            alert(`Verification: MX=${res.data.mx}, SPF=${res.data.spf}, Verified=${res.data.verified}`);
+            const list = await api.get('/api/domains');
+            setDomains(list.data);
+        } catch (err) {
+            alert('Verification failed: ' + (err.response?.data?.detail || err.message));
+        }
+    };
+
+    const handleShowDns = async (domainId) => {
+        try {
+            const res = await api.get(`/api/domains/${domainId}/dns-records`);
+            alert(JSON.stringify(res.data.records, null, 2));
+        } catch (err) {
+            alert('Failed to fetch DNS records: ' + (err.response?.data?.detail || err.message));
+        }
+    };
+
         if (bytes === 0) return '0 B';
         const k = 1024;
         const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -160,10 +198,77 @@ const AdminDashboard = () => {
                             <span className="text-premium-secondary text-sm">E2E Module</span>
                             <span className="text-green-500 font-bold flex items-center gap-1.5"><CheckCircle2 size={14} /> Encrypted</span>
                         </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-premium-secondary text-sm">SMTP Inbound</span>
+                            <span className="text-green-500 font-bold flex items-center gap-1.5">
+                                <CheckCircle2 size={14} /> Port {smtpStatus?.inbound_port || '2525'}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-premium-secondary text-sm">Local Domains</span>
+                            <span className="font-mono text-xs">{(smtpStatus?.local_domains || []).join(', ')}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-premium-secondary text-sm">Outbound Relay</span>
+                            <span className="font-mono text-xs">{smtpStatus?.relay_host || 'Direct MX'}</span>
+                        </div>
                         <div className="p-4 bg-blue-500/5 border border-blue-500/10 rounded-xl text-[11px] text-premium-secondary leading-relaxed">
                             <span className="text-blue-400 font-bold uppercase block mb-1">Compliance Note</span>
                             This instance is running in <strong>B2B/Gov Air-Gap Mode</strong>. Archive and disaster recovery rights are provisioned per SECTION 4 of the EULA.
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Custom Domains */}
+            <div className="glass-card overflow-hidden">
+                <div className="p-6 border-b border-white/5 bg-white/5 font-bold uppercase text-xs tracking-widest text-premium-secondary flex items-center gap-2">
+                    <Globe size={16} /> Custom Domains (SMTP Phase 1)
+                </div>
+                <div className="p-6 space-y-4">
+                    <form onSubmit={handleAddDomain} className="flex gap-3">
+                        <input
+                            type="text"
+                            value={newDomain}
+                            onChange={(e) => setNewDomain(e.target.value)}
+                            placeholder="mail.example.gov"
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm"
+                        />
+                        <button type="submit" className="premium-btn px-6 py-2 text-sm">Add Domain</button>
+                    </form>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead>
+                                <tr className="text-xs text-premium-secondary uppercase border-b border-white/5">
+                                    <th className="py-3 pr-4">Domain</th>
+                                    <th className="py-3 pr-4">Owner</th>
+                                    <th className="py-3 pr-4">Status</th>
+                                    <th className="py-3">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {domains.map((d) => (
+                                    <tr key={d.id} className="border-b border-white/5">
+                                        <td className="py-3 pr-4 font-mono">{d.domain}</td>
+                                        <td className="py-3 pr-4 text-premium-secondary">{d.owner_username}</td>
+                                        <td className="py-3 pr-4">
+                                            {d.verified ? (
+                                                <span className="text-green-400 text-xs font-bold">VERIFIED</span>
+                                            ) : (
+                                                <span className="text-amber-400 text-xs font-bold">PENDING DNS</span>
+                                            )}
+                                        </td>
+                                        <td className="py-3 flex gap-2">
+                                            <button onClick={() => handleShowDns(d.id)} className="text-xs text-premium-accent hover:underline">DNS Records</button>
+                                            <button onClick={() => handleVerifyDomain(d.id)} className="text-xs text-green-400 hover:underline">Verify</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {domains.length === 0 && (
+                                    <tr><td colSpan={4} className="py-6 text-center text-premium-secondary">No custom domains configured</td></tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -266,6 +371,6 @@ const AdminDashboard = () => {
             </div>
         </div>
     );
-};
+
 
 export default AdminDashboard;

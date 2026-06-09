@@ -2,7 +2,7 @@ from typing import Annotated, Optional
 from fastapi import HTTPException, Header, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, create_engine, select, SQLModel
-from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential, DeviceKey
+from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential, DeviceKey, Domain, AuditLog, ExternalMessage
 import jwt
 import os
 from datetime import datetime, timedelta
@@ -293,3 +293,88 @@ async def get_user_credentials(username: str, session: Session):
     return session.exec(select(WebAuthnCredential).where(WebAuthnCredential.user_username == username)).all()
 async def get_user_devices(user: User, session: Session):
     return session.exec(select(DeviceKey).where(DeviceKey.user_username == user.username)).all()
+
+
+# --- Domain management (Phase 1) ---
+
+def get_env_domains() -> list[str]:
+    import json
+    raw = os.environ.get("SES_DOMAINS", '["ses"]')
+    try:
+        return [d.lower() for d in json.loads(raw)]
+    except json.JSONDecodeError:
+        return ["ses"]
+
+
+async def get_supported_domains(session: Session) -> list[str]:
+    """Merge env-configured domains with verified custom domains."""
+    domains = set(get_env_domains())
+    verified = session.exec(select(Domain).where(Domain.verified == True)).all()
+    domains.update(d.domain.lower() for d in verified)
+    return sorted(domains)
+
+
+async def get_user_domains(user: User, session: Session) -> list[Domain]:
+    return list(session.exec(select(Domain).where(Domain.owner_username == user.username)).all())
+
+
+async def add_domain(domain: str, owner_username: str, session: Session) -> Domain:
+    domain = domain.lower().strip()
+    existing = session.exec(select(Domain).where(Domain.domain == domain)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Domain already registered")
+    record = Domain(
+        domain=domain,
+        owner_username=owner_username,
+        verified=False,
+        dkim_selector=os.environ.get("DKIM_SELECTOR", "ses"),
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return record
+
+
+async def verify_domain_dns(domain_record: Domain, session: Session) -> dict:
+    """Check MX and SPF records point to this deployment."""
+    import dns.resolver
+
+    domain = domain_record.domain
+    mail_host = os.environ.get("SES_MAIL_HOST", f"mail.{domain}")
+    results = {"mx": False, "spf": False, "verified": False}
+
+    try:
+        mx_records = dns.resolver.resolve(domain, "MX")
+        mx_hosts = [str(r.exchange).rstrip(".").lower() for r in mx_records]
+        if mail_host.lower() in mx_hosts or any(mail_host.lower() in h for h in mx_hosts):
+            results["mx"] = True
+    except Exception:
+        pass
+
+    try:
+        txt_records = dns.resolver.resolve(domain, "TXT")
+        for r in txt_records:
+            txt = str(r).strip('"').lower()
+            if "v=spf1" in txt and (mail_host.lower() in txt or "mx" in txt):
+                results["spf"] = True
+                break
+    except Exception:
+        pass
+
+    if results["mx"] and results["spf"]:
+        domain_record.verified = True
+        domain_record.verified_at = datetime.now()
+        session.add(domain_record)
+        session.commit()
+        session.refresh(domain_record)
+        results["verified"] = True
+
+    return results
+
+
+async def get_domain_by_id(domain_id: int, session: Session) -> Domain | None:
+    return session.exec(select(Domain).where(Domain.id == domain_id)).first()
+
+
+async def count_users(session: Session) -> int:
+    return len(session.exec(select(User)).all())

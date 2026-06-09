@@ -1,7 +1,8 @@
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 from fastapi import Body, Depends, FastAPI, HTTPException, status, UploadFile, File, Request, Form
-from fastapi.responses import FileResponse, JSONResponse
-from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential, Domain, ExternalMessage
 from sqlmodel import Session, select
 import asyncio
 import db
@@ -18,11 +19,27 @@ import json
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
-# mock stripe api key 
-stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "sk_test_mock")
+import audit
+from crypto_spec import (
+    CryptoSpecification,
+    get_crypto_spec,
+    get_threat_model,
+    get_key_derivation,
+)
+from smtp_relay import smtp_relay, mx_router, secure_viewer, smtp_config
+from smtp_inbound import start_inbound_smtp, stop_inbound_smtp
+
+# Enterprise deployments do not require Stripe; kept for optional SaaS mode
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 endpoint_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
-app = FastAPI()
+app = FastAPI(
+    title="SecureMail Enterprise",
+    description="Self-hosted zero-knowledge secure email for air-gapped and on-prem deployments.",
+    version="1.0.0",
+)
+
+STATIC_DIR = os.environ.get("STATIC_DIR", "static")
 
 template = Template(open('./template.jinja2', 'r').read(), autoescape=True)
 browser = asyncio.Lock()
@@ -70,6 +87,54 @@ current_license = verify_license()
 
 # Initialize DB
 db.create_db_and_tables()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+def require_valid_license_for_smtp() -> dict:
+    """Enterprise SMTP relay requires a valid offline license in production."""
+    if os.environ.get("LICENSE_REQUIRED", "true").lower() != "true":
+        return {"status": "Bypassed"}
+    lic = verify_license()
+    if lic.get("status") != "Valid":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Valid enterprise license required for SMTP relay ({lic.get('error', lic.get('status'))})",
+        )
+    return lic
+
+
+async def refresh_smtp_domains(session: Session):
+    domains = await db.get_supported_domains(session)
+    smtp_relay.refresh_local_domains(domains)
+
+
+@app.on_event("startup")
+async def on_startup():
+    with Session(db.engine) as session:
+        await refresh_smtp_domains(session)
+    start_inbound_smtp()
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    stop_inbound_smtp()
+
+
+@app.get("/api/health")
+async def health():
+    lic = verify_license()
+    return {
+        "status": "ok",
+        "license": lic.get("status"),
+        "smtp_inbound": os.environ.get("SMTP_INBOUND_ENABLED", "true"),
+        "local_domains": smtp_config.supported_domains,
+    }
 
 async def send_welcome_message(username: str, session: Session):
     """Send welcome message to newly registered user"""
@@ -151,6 +216,7 @@ async def login(
 
 @app.post('/api/register')
 async def register(
+    request: Request,
     username: Annotated[str, Body()],
     password: Annotated[str, Body()],
     public_key: Annotated[str, Body()] = "",
@@ -158,13 +224,28 @@ async def register(
     session: Session = Depends(db.get_session)
 ):
     try:
-        # Enforce @ses suffix
-        if not username.endswith('@ses'):
-            if '@' in username:
-                raise HTTPException(status_code=400, detail="External domains not supported for main account creation")
-            username = f"{username}@ses"
-        
-        # Check if user exists
+        supported = await db.get_supported_domains(session)
+
+        if "@" not in username:
+            username = f"{username}@{smtp_config.default_domain}"
+
+        domain_part = username.split("@", 1)[1].lower()
+        if domain_part not in supported:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Domain '{domain_part}' is not provisioned. Add and verify the domain first.",
+            )
+
+        lic = verify_license()
+        if lic.get("status") == "Valid":
+            seats = lic["data"].get("seats", 0)
+            user_count = await db.count_users(session)
+            if user_count >= seats:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"License seat limit reached ({seats} seats). Contact your vendor for renewal.",
+                )
+
         existing_user = session.exec(select(User).where(User.username == username)).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="Identity address already provisioned")
@@ -196,8 +277,12 @@ async def register(
             webauthn_id=str(uuid.uuid4())
         )
         await db.set_user(new_user, session)
-        
-        # Send welcome message
+
+        audit.log_action(
+            session, username, "user_registered", username,
+            ip_address=_client_ip(request),
+        )
+
         await send_welcome_message(new_user.username, session)
         
         return {"status": "success", "message": "Identity provisioned"}
@@ -278,30 +363,35 @@ async def reset_account(
 
 @app.post('/api/send')
 async def send(
+    request: Request,
     user: Annotated[User, Depends(db.request_user)],
     to: Annotated[str, Body()],
     subject: Annotated[str, Body()],
     body: Annotated[str, Body()],
     session: Session = Depends(db.get_session)
 ):
-    recipient = await db.get_user(to, session)
-    
-    # Tier Gating for External Domains
-    if not to.endswith('@ses'):
+    to = to.strip().lower()
+    is_local = False
+    if "@" in to:
+        domain_part = to.split("@", 1)[1]
+        is_local = domain_part in smtp_config.supported_domains
+
+    recipient = None
+    if is_local:
+        try:
+            recipient = await db.get_user(to, session)
+        except HTTPException:
+            if not to.endswith(".burn"):
+                raise HTTPException(status_code=404, detail=f"Recipient {to} not found")
+
+    if not is_local:
+        require_valid_license_for_smtp()
         if user.tier not in ["Pro", "Enterprise"]:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="External secure invites are a Pro/Enterprise feature. Please upgrade your account."
+                detail="External SMTP relay requires Pro or Enterprise tier.",
             )
-        
-        # Simulation: Create a Guest simulation or just allow the sent record
-        # This record is critical for linking attachments
-        pass
 
-    if not recipient and to.endswith('@ses') and not to.endswith('.burn'): # Basic burn address handling in send
-        raise HTTPException(status_code=404, detail=f"Recipient {to} not found in SecureMail network")
-
-    # Sign if we have a valid PEM private key (not zero-knowledge wrapped)
     should_sign = len(user.certificate) > 0 and len(user.encrypted_private_key) > 0 and not user.encrypted_private_key.startswith('{')
 
     if not should_sign:
@@ -327,10 +417,27 @@ async def send(
         )
 
     email_id = str(uuid.uuid4())
-    
-    # Always create the email record (internal or external)
-    await db.send_email(to, email_id, msg, user.username, session)
 
+    if not is_local:
+        from_domain = user.username.split("@", 1)[1]
+        html_content = template.render(title=subject, content=body) if should_sign else None
+        success, result = await smtp_relay.send_outbound(
+            from_addr=user.username,
+            to_addr=to,
+            subject=subject,
+            body=body,
+            html_body=html_content,
+            dkim_domain=from_domain,
+        )
+        if not success:
+            raise HTTPException(status_code=502, detail=f"SMTP relay failed: {result}")
+        audit.log_action(
+            session, user.username, "smtp_outbound_sent", to,
+            details={"message_id": result, "subject": subject},
+            ip_address=_client_ip(request),
+        )
+
+    await db.send_email(to, email_id, msg, user.username, session)
     return email_id
 
 # WebAuthn Endpoints
@@ -523,18 +630,25 @@ async def get_license_status(user: Annotated[User, Depends(db.request_user)]):
 
 @app.post('/api/admin/license/upload')
 async def upload_license(
+    request: Request,
     user: Annotated[User, Depends(db.request_user)],
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    session: Session = Depends(db.get_session),
 ):
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
+
     content = await file.read()
     with open(LICENSE_FILE_PATH, "wb") as f:
         f.write(content)
-    
+
     global current_license
     current_license = verify_license()
+    audit.log_action(
+        session, user.username, "license_uploaded", LICENSE_FILE_PATH,
+        details={"status": current_license.get("status")},
+        ip_address=_client_ip(request),
+    )
     return current_license
 
 @app.post('/api/upload')
@@ -637,6 +751,156 @@ async def root_cert():
     if cert is None:
         raise HTTPException(status_code=404, detail="Root cert not found")
     return cert
+
+
+# --- Phase 1: SMTP & Domain Management ---
+
+@app.get("/api/smtp/status")
+async def smtp_status(user: Annotated[User, Depends(db.request_user)]):
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return {
+        "local_domains": smtp_config.supported_domains,
+        "inbound_enabled": os.environ.get("SMTP_INBOUND_ENABLED", "true"),
+        "inbound_port": os.environ.get("SMTP_INBOUND_PORT", "2525"),
+        "relay_host": smtp_config.relay_host or "(direct MX delivery)",
+        "relay_port": smtp_config.relay_port,
+        "dkim_selector": smtp_config.dkim_selector,
+        "license": verify_license().get("status"),
+    }
+
+
+@app.get("/api/dns/{domain}/mx")
+async def dns_mx(domain: str):
+    records = mx_router.get_mx_records(domain)
+    return {"domain": domain, "mx_records": [{"priority": p, "host": h} for p, h in records]}
+
+
+@app.get("/api/domains")
+async def list_domains(
+    user: Annotated[User, Depends(db.request_user)],
+    session: Session = Depends(db.get_session),
+):
+    if user.is_admin:
+        return list(session.exec(select(Domain)).all())
+    return await db.get_user_domains(user, session)
+
+
+@app.post("/api/domains")
+async def add_domain(
+    request: Request,
+    user: Annotated[User, Depends(db.request_user)],
+    domain: Annotated[str, Body()],
+    session: Session = Depends(db.get_session),
+):
+    require_valid_license_for_smtp()
+    domain = domain.lower().strip()
+    record = await db.add_domain(domain, user.username, session)
+    audit.log_action(
+        session, user.username, "domain_added", domain,
+        ip_address=_client_ip(request),
+    )
+    return record
+
+
+@app.get("/api/domains/{domain_id}/dns-records")
+async def domain_dns_records(
+    domain_id: int,
+    user: Annotated[User, Depends(db.request_user)],
+    session: Session = Depends(db.get_session),
+):
+    record = await db.get_domain_by_id(domain_id, session)
+    if not record:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    if not user.is_admin and record.owner_username != user.username:
+        raise HTTPException(status_code=403, detail="Access denied")
+    mail_host = os.environ.get("SES_MAIL_HOST", f"mail.{record.domain}")
+    return {
+        "domain": record.domain,
+        "verified": record.verified,
+        "records": smtp_relay.dkim.get_dns_records(record.domain, mail_host),
+    }
+
+
+@app.post("/api/domains/{domain_id}/verify")
+async def verify_domain(
+    request: Request,
+    domain_id: int,
+    user: Annotated[User, Depends(db.request_user)],
+    session: Session = Depends(db.get_session),
+):
+    record = await db.get_domain_by_id(domain_id, session)
+    if not record:
+        raise HTTPException(status_code=404, detail="Domain not found")
+    if not user.is_admin and record.owner_username != user.username:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    results = await db.verify_domain_dns(record, session)
+    if results.get("verified"):
+        await refresh_smtp_domains(session)
+        audit.log_action(
+            session, user.username, "domain_verified", record.domain,
+            details=results, ip_address=_client_ip(request),
+        )
+    return {"domain": record.domain, **results}
+
+
+# --- Cryptographic transparency (public audit surface) ---
+
+@app.get("/api/crypto/specification")
+async def crypto_specification():
+    return get_crypto_spec()
+
+
+@app.get("/api/crypto/threat-model")
+async def crypto_threat_model():
+    return PlainTextResponse(get_threat_model(), media_type="text/plain")
+
+
+@app.get("/api/crypto/key-derivation")
+async def crypto_key_derivation():
+    return PlainTextResponse(get_key_derivation(), media_type="text/plain")
+
+
+@app.get("/api/crypto/compliance")
+async def crypto_compliance():
+    return CryptoSpecification.verify_algorithm_compliance()
+
+
+@app.get("/api/crypto/trust-boundaries")
+async def crypto_trust_boundaries():
+    return CryptoSpecification.TRUST_BOUNDARIES
+
+
+@app.get("/api/admin/audit-logs")
+async def admin_audit_logs(
+    user: Annotated[User, Depends(db.request_user)],
+    session: Session = Depends(db.get_session),
+    limit: int = 100,
+    offset: int = 0,
+):
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return audit.get_audit_logs(session, limit=limit, offset=offset)
+
+
+# --- Static frontend (production) ---
+
+if os.path.isdir(STATIC_DIR):
+    app.mount("/assets", StaticFiles(directory=os.path.join(STATIC_DIR, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        file_path = os.path.join(STATIC_DIR, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index = os.path.join(STATIC_DIR, "index.html")
+        if os.path.isfile(index):
+            return FileResponse(index)
+        raise HTTPException(status_code=404, detail="Frontend not built")
+
 
 if __name__ == "__main__":
     uvicorn.run(app, port=8000, host='0.0.0.0')

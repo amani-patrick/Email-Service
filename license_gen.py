@@ -55,13 +55,24 @@ def create_license(customer, expiry_days, seats, tier="Enterprise"):
     print(f"License generated for {customer} (Exp: {expiry}) -> enterprise_license.lic")
 
 if __name__ == "__main__":
+    import argparse
     import os
-    if not os.path.exists("license_private.pem"):
+
+    parser = argparse.ArgumentParser(description="SecureMail Enterprise license generator")
+    parser.add_argument("--generate-keys", action="store_true", help="Generate vendor keypair")
+    parser.add_argument("--customer", type=str, help="Customer organization name")
+    parser.add_argument("--days", type=int, default=365, help="License validity in days")
+    parser.add_argument("--seats", type=int, default=50, help="Provisioned user seats")
+    parser.add_argument("--tier", type=str, default="Enterprise", help="License tier")
+    args = parser.parse_args()
+
+    if args.generate_keys or not os.path.exists("license_private.pem"):
         generate_keypair()
-    
-    # Example usage:
-    # create_license("Thales Defense", 365, 500)
-    customer = input("Customer Name: ")
-    days = int(input("Expiry Days (e.g., 365): "))
-    seats = int(input("Seat Count: "))
-    create_license(customer, days, seats)
+
+    if args.customer:
+        create_license(args.customer, args.days, args.seats, args.tier)
+    elif not args.generate_keys:
+        customer = input("Customer Name: ")
+        days = int(input("Expiry Days (e.g., 365): "))
+        seats = int(input("Seat Count: "))
+        create_license(customer, days, seats)

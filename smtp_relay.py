@@ -52,6 +52,13 @@ class SMTPConfig:
         self.max_message_size = int(os.environ.get("MAX_MESSAGE_SIZE", "26214400"))  # 25MB
         self.require_tls = os.environ.get("REQUIRE_TLS", "true").lower() == "true"
 
+        # Optional smart-host relay (recommended for production — avoids port 25 blocks)
+        self.relay_host = os.environ.get("SMTP_RELAY_HOST", "")
+        self.relay_port = int(os.environ.get("SMTP_RELAY_PORT", "587"))
+        self.relay_user = os.environ.get("SMTP_RELAY_USER", "")
+        self.relay_password = os.environ.get("SMTP_RELAY_PASSWORD", "")
+        self.relay_use_tls = os.environ.get("SMTP_RELAY_TLS", "true").lower() == "true"
+
 
 class DKIMManager:
     """DKIM Signing Manager"""
@@ -88,25 +95,59 @@ class DKIMManager:
             encryption_algorithm=serialization.NoEncryption()
         )
     
+    def get_spf_record(self, domain: str, mail_host: str = None) -> str:
+        """Generate recommended SPF TXT record."""
+        host = mail_host or os.environ.get("SES_MAIL_HOST", f"mail.{domain}")
+        return f"v=spf1 mx a:{host} -all"
+
+    def get_dmarc_record(self, domain: str, policy: str = "quarantine") -> str:
+        """Generate recommended DMARC TXT record."""
+        return f"v=DMARC1; p={policy}; rua=mailto:dmarc@{domain}; pct=100; adkim=s; aspf=s"
+
+    def get_dns_records(self, domain: str, mail_host: str = None) -> dict:
+        """Return all DNS records an operator must publish for a domain."""
+        selector = self.config.dkim_selector
+        return {
+            "mx": {
+                "type": "MX",
+                "name": domain,
+                "value": f"10 {mail_host or os.environ.get('SES_MAIL_HOST', f'mail.{domain}')}",
+                "priority": 10,
+            },
+            "spf": {
+                "type": "TXT",
+                "name": domain,
+                "value": self.get_spf_record(domain, mail_host),
+            },
+            "dkim": {
+                "type": "TXT",
+                "name": f"{selector}._domainkey.{domain}",
+                "value": self.get_dns_txt_record(domain),
+            },
+            "dmarc": {
+                "type": "TXT",
+                "name": f"_dmarc.{domain}",
+                "value": self.get_dmarc_record(domain),
+            },
+        }
+
     def get_dns_txt_record(self, domain: str) -> str:
         """Generate DNS TXT record for DKIM"""
         from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        
+
         key = serialization.load_pem_private_key(self.private_key, password=None)
         public_key = key.public_key()
-        
+
         pub_bytes = public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
-        
-        # Extract the key data
+
         pub_str = pub_bytes.decode()
         key_data = ''.join(pub_str.split('\n')[1:-2])
-        
+
         return f"v=DKIM1; k=rsa; p={key_data}"
-    
+
     def sign_message(self, message: MIMEMultipart, domain: str) -> bytes:
         """Sign an email message with DKIM"""
         # Convert message to bytes
@@ -254,122 +295,130 @@ class SMTPRelay:
             except Exception as e:
                 logger.warning(f"DKIM signing failed: {e}")
         
-        # Connect and send
+        # Connect and send via smart-host or direct MX
         try:
-            mx_host = routing["next_hop"]
-            
-            # Try TLS first
+            if self.config.relay_host:
+                return self._send_via_relay(msg, to_addr)
+
+            mx_host = routing["next_hop"].rstrip(".")
             try:
                 with smtplib.SMTP(mx_host, 25, timeout=30) as smtp:
-                    smtp.ehlo()
-                    if smtp.has_extn('STARTTLS'):
+                    smtp.ehlo(self.config.default_domain)
+                    if smtp.has_extn("STARTTLS"):
                         smtp.starttls()
-                        smtp.ehlo()
+                        smtp.ehlo(self.config.default_domain)
                     smtp.send_message(msg)
-                    return True, msg['Message-ID']
+                    return True, msg["Message-ID"]
             except smtplib.SMTPException:
-                # Fallback to SSL
                 with smtplib.SMTP_SSL(mx_host, self.config.smtp_ssl_port, timeout=30) as smtp:
                     smtp.send_message(msg)
-                    return True, msg['Message-ID']
-                    
+                    return True, msg["Message-ID"]
+
         except Exception as e:
             logger.error(f"SMTP delivery failed to {to_addr}: {e}")
+            return False, str(e)
+
+    def _send_via_relay(self, msg: MIMEMultipart, to_addr: str) -> Tuple[bool, str]:
+        """Deliver outbound mail through a configured SMTP submission relay."""
+        host = self.config.relay_host
+        port = self.config.relay_port
+        try:
+            if self.config.relay_use_tls and port == 465:
+                smtp = smtplib.SMTP_SSL(host, port, timeout=30)
+            else:
+                smtp = smtplib.SMTP(host, port, timeout=30)
+            with smtp:
+                smtp.ehlo(self.config.default_domain)
+                if self.config.relay_use_tls and port != 465 and smtp.has_extn("STARTTLS"):
+                    smtp.starttls()
+                    smtp.ehlo(self.config.default_domain)
+                if self.config.relay_user:
+                    smtp.login(self.config.relay_user, self.config.relay_password)
+                smtp.send_message(msg)
+            return True, msg["Message-ID"]
+        except Exception as e:
+            logger.error(f"SMTP relay delivery failed to {to_addr} via {host}: {e}")
             return False, str(e)
     
     async def receive_inbound(
         self,
         raw_message: bytes,
-        session
+        session,
+        get_user_fn,
     ) -> Tuple[bool, str]:
         """
-        Process an inbound email message
-        Returns (success, error_message)
+        Process an inbound email message.
+        Stores the raw RFC822 message as an opaque blob (encrypted at rest if
+        the sender used client-side encryption; otherwise plaintext MIME).
         """
         try:
-            # Parse the message
             msg = email.message_from_bytes(raw_message)
-            
-            # Extract headers
-            from_addr = msg.get('From', '')
-            to_addr = msg.get('To', '')
-            subject = msg.get('Subject', '')
-            
-            # Parse addresses
+
+            from_addr = msg.get("From", "")
+            to_addrs = msg.get("To", "") + "," + msg.get("Delivered-To", "")
+            subject = msg.get("Subject", "")
+
             _, from_email = parseaddr(from_addr)
-            _, to_email = parseaddr(to_addr)
-            
-            # Check if recipient is local
-            routing = self.mx_router.route_email(to_email, self.config.supported_domains)
-            
-            if routing["type"] != "local":
-                return False, f"Recipient {to_email} not in local domains"
-            
-            # Extract body
-            body = ""
-            html_body = ""
-            attachments = []
-            
-            if msg.is_multipart():
-                for part in msg.walk():
-                    content_type = part.get_content_type()
-                    content_disposition = str(part.get('Content-Disposition', ''))
-                    
-                    if 'attachment' in content_disposition:
-                        # Store attachment
-                        att_data = part.get_payload(decode=True)
-                        attachments.append({
-                            'filename': part.get_filename(),
-                            'mime_type': content_type,
-                            'data': att_data,
-                            'size': len(att_data)
-                        })
-                    elif content_type == 'text/plain':
-                        body = part.get_payload(decode=True).decode('utf-8', errors='replace')
-                    elif content_type == 'text/html':
-                        html_body = part.get_payload(decode=True).decode('utf-8', errors='replace')
-            else:
-                body = msg.get_payload(decode=True)
-                if isinstance(body, bytes):
-                    body = body.decode('utf-8', errors='replace')
-            
-            # Import here to avoid circular imports
-            from model import Email
-            from sqlmodel import select
-            from database import get_user
-            
-            # Get recipient user
-            recipient = await get_user(routing["user"], session)
-            if not recipient:
-                return False, f"User {routing['user']} not found"
-            
-            # Store as encrypted blob (the body should already be encrypted client-side)
-            email_id = str(uuid.uuid4())
-            email_size = len(raw_message)
-            
-            # Check quota
-            if recipient.storage_used + email_size > recipient.storage_limit:
-                return False, "Storage quota exceeded"
-            
-            new_email = Email(
-                uuid=email_id,
-                recipient_username=recipient.username,
-                sender_username=from_email,
-                data=base64.b64encode(raw_message).decode(),  # Store as base64
-                size=email_size
-            )
-            
-            recipient.storage_used += email_size
-            session.add(recipient)
-            session.add(new_email)
-            session.commit()
-            
-            logger.info(f"Received email {email_id} for {to_email}")
-            return True, email_id
-            
+
+            recipients = []
+            for part in to_addrs.split(","):
+                _, addr = parseaddr(part.strip())
+                if addr and "@" in addr:
+                    recipients.append(addr.lower())
+
+            if not recipients:
+                return False, "No recipient found in message"
+
+            stored_ids = []
+            for to_email in recipients:
+                routing = self.mx_router.route_email(to_email, self.config.supported_domains)
+                if routing["type"] != "local":
+                    logger.info(f"Skipping non-local recipient {to_email}")
+                    continue
+
+                try:
+                    recipient = await get_user_fn(to_email, session)
+                except Exception:
+                    logger.warning(f"No local user for {to_email}")
+                    continue
+
+                email_id = str(uuid.uuid4())
+                email_size = len(raw_message)
+
+                if recipient.storage_used + email_size > recipient.storage_limit:
+                    return False, f"Storage quota exceeded for {to_email}"
+
+                from model import Email
+
+                new_email = Email(
+                    uuid=email_id,
+                    recipient_username=recipient.username,
+                    sender_username=from_email,
+                    data=raw_message.decode("utf-8", errors="replace"),
+                    size=email_size,
+                )
+
+                recipient.storage_used += email_size
+                session.add(recipient)
+                session.add(new_email)
+                session.commit()
+                stored_ids.append(email_id)
+                logger.info(f"Received email {email_id} for {to_email} (subject: {subject[:50]})")
+
+            if not stored_ids:
+                return False, "No local recipients matched"
+
+            return True, stored_ids[0]
+
         except Exception as e:
             logger.error(f"Failed to process inbound email: {e}")
             return False, str(e)
+
+    def refresh_local_domains(self, domains: List[str]):
+        """Merge verified custom domains into the routing table."""
+        merged = set(d.lower() for d in self.config.supported_domains)
+        merged.update(d.lower() for d in domains)
+        self.config.supported_domains = sorted(merged)
 
 
 class SecureExternalViewer:

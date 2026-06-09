@@ -24,12 +24,12 @@ Allow SES users to send/receive messages from any email address.
 
 ### Tasks
 
-* [ ] Implement SMTP inbound/outbound relay
-* [ ] Add domain support (MX record routing)
-* [ ] Enable custom domain onboarding
-* [ ] Implement DKIM signing
-* [ ] Configure SPF + DMARC alignment
-* [ ] Store encrypted message blobs instead of plaintext mail
+* [x] Implement SMTP inbound/outbound relay
+* [x] Add domain support (MX record routing)
+* [x] Enable custom domain onboarding
+* [x] Implement DKIM signing
+* [x] Configure SPF + DMARC alignment
+* [x] Store encrypted message blobs instead of plaintext mail
 
 ### Deliverable
 
