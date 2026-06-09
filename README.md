@@ -15,7 +15,7 @@ SecureMail is a **zero-knowledge email platform** you run on your own infrastruc
 | Inbound SMTP relay (port 2525) | ✅ |
 | Outbound SMTP (direct MX or smart-host relay) | ✅ |
 | DKIM / SPF / DMARC DNS guidance | ✅ |
-| Custom domain onboarding + verification | ✅ |
+| Secure external delivery (link + passphrase, no signup) | ✅ |
 | Offline enterprise license (RSA-PSS signed) | ✅ |
 | Cryptographic transparency API | ✅ |
 | Audit logging (actions, not content) | ✅ |
@@ -135,7 +135,11 @@ GET  /api/domains                   # List custom domains
 POST /api/domains                   # Register domain
 GET  /api/domains/{id}/dns-records  # SPF/DKIM/DMARC records to publish
 POST /api/domains/{id}/verify       # Verify DNS configuration
-GET  /api/smtp/status               # Admin SMTP diagnostics
+POST /api/external/send              # Encrypted payload + notification email
+GET  /api/external/view/{token}      # Public — encrypted blob only
+POST /api/external/{id}/revoke       # Revoke link
+GET  /api/external/sent              # Sender's outbound secure invites
+GET  /api/routing/{email}            # local E2E vs external secure_link
 GET  /api/admin/audit-logs          # Admin audit trail
 ```
 

@@ -53,10 +53,10 @@ When emailing a non-SES address:
 
 ### Tasks
 
-* [ ] Build secure message viewer (stateless)
-* [ ] Generate ephemeral access tokens
-* [ ] Add expiration + revocation logic
-* [ ] Ensure server cannot decrypt payload
+* [x] Build secure message viewer (stateless)
+* [x] Generate ephemeral access tokens
+* [x] Add expiration + revocation logic
+* [x] Ensure server cannot decrypt payload
 
 ### Deliverable
 

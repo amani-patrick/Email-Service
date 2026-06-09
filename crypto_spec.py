@@ -83,9 +83,10 @@ class CryptoSpecification:
        - Store encrypted message as blob
        
        For external messages:
-       - Sender encrypts message client-side with shared secret
+       - Sender encrypts message client-side with shared secret (PBKDF2 + AES-256-GCM)
        - Server stores encrypted blob (cannot decrypt)
-       - Recipient receives link with ephemeral token
+       - Recipient receives SMTP notification with ephemeral link only
+       - Recipient decrypts in browser after entering shared secret
     
     3. Message Decryption (Recipient)
        ------------------------------

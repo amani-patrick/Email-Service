@@ -72,7 +72,8 @@ This document describes what SecureMail protects, how, and where responsibility 
 
 ## SMTP-specific considerations
 
-- **Outbound:** Messages relayed to the public internet are protected in transit by TLS where supported; content may be readable at recipient's provider unless they use PGP/S/MIME.
+- **Outbound secure invites (Phase 2):** Only a link is emailed; ciphertext stays on server. Shared secret must be delivered out-of-band by sender. Server cannot decrypt.
+- **Outbound plain SMTP:** Not used for message content — external recipients use secure link flow only.
 - **Inbound:** External senders are not required to encrypt; SecureMail stores the raw message. Internal users should treat external mail accordingly.
 - **DKIM/SPF/DMARC:** Operator must publish DNS records; misconfiguration affects deliverability and spoofing resistance, not at-rest encryption.
 

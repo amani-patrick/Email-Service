@@ -2,6 +2,7 @@ from typing import Annotated, Optional
 from fastapi import HTTPException, Header, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, create_engine, select, SQLModel
+from sqlalchemy import desc
 from model import User, Email, Attachment, BurnAddress, DriveFile, WebAuthnCredential, DeviceKey, Domain, AuditLog, ExternalMessage
 import jwt
 import os
@@ -416,7 +417,7 @@ async def get_sent_external_messages(user: User, session: Session) -> list[Exter
     stmt = (
         select(ExternalMessage)
         .where(ExternalMessage.sender_username == user.username)
-        .order_by(ExternalMessage.created_at.desc())
+        .order_by(desc(ExternalMessage.created_at))
     )
     return list(session.exec(stmt).all())
 

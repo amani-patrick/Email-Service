@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
     LayoutDashboard,
     Inbox,
+    Link2,
     Send,
     Settings,
     ShieldAlert,
@@ -43,6 +44,7 @@ const Sidebar = ({ user, onLogout }) => {
                     <SidebarItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" />
                     <SidebarItem to="/inbox" icon={Inbox} label="Inbox" />
                     <SidebarItem to="/compose" icon={Send} label="Compose Email" />
+                    <SidebarItem to="/external-sent" icon={Link2} label="Secure Invites" />
 
                     <div className="pt-4 mt-4 border-t border-white/5 space-y-2">
                         <p className="px-4 mb-2 text-[10px] uppercase tracking-widest font-black text-premium-secondary opacity-50">

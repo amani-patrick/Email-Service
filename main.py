@@ -379,10 +379,21 @@ async def send(
     if not is_local:
         raise HTTPException(
             status_code=400,
-            detail="Non-local recipients require secure external delivery. Use POST /api/external/send from Compose.",
+            detail="Non-local recipients require secure external delivery. Use the Secure Invite flow in Compose.",
         )
 
     recipient = None
+    try:
+        recipient = await db.get_user(to, session)
+    except HTTPException:
+        if not to.endswith(".burn"):
+            raise HTTPException(status_code=404, detail=f"Recipient {to} not found")
+
+    should_sign = (
+        len(user.certificate) > 0
+        and len(user.encrypted_private_key) > 0
+        and not user.encrypted_private_key.startswith("{")
+    )
 
     if not should_sign:
         msg = util.generate_email(
@@ -396,37 +407,14 @@ async def send(
             sender=user.username,
             recipient=recipient.username if recipient else to,
             subject=subject,
-            content=template.render(
-                title=subject,
-                content=body
-            ),
+            content=template.render(title=subject, content=body),
             html=True,
             sign=True,
             cert=user.certificate,
-            key=user.encrypted_private_key
+            key=user.encrypted_private_key,
         )
 
     email_id = str(uuid.uuid4())
-
-    if not is_local:
-        from_domain = user.username.split("@", 1)[1]
-        html_content = template.render(title=subject, content=body) if should_sign else None
-        success, result = await smtp_relay.send_outbound(
-            from_addr=user.username,
-            to_addr=to,
-            subject=subject,
-            body=body,
-            html_body=html_content,
-            dkim_domain=from_domain,
-        )
-        if not success:
-            raise HTTPException(status_code=502, detail=f"SMTP relay failed: {result}")
-        audit.log_action(
-            session, user.username, "smtp_outbound_sent", to,
-            details={"message_id": result, "subject": subject},
-            ip_address=_client_ip(request),
-        )
-
     await db.send_email(to, email_id, msg, user.username, session)
     return email_id
 
@@ -833,6 +821,202 @@ async def verify_domain(
             details=results, ip_address=_client_ip(request),
         )
     return {"domain": record.domain, **results}
+
+
+# --- Phase 2: External Secure Delivery ---
+
+def _viewer_base_url(request: Request) -> str:
+    configured = os.environ.get("EXTERNAL_VIEWER_BASE_URL", "").strip()
+    if configured:
+        return configured.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
+@app.get("/api/routing/{email}")
+async def routing_info(email: str, session: Session = Depends(db.get_session)):
+    """Determine whether an address is local (E2E) or external (secure link)."""
+    email = email.strip().lower()
+    if "@" not in email:
+        return {"type": "unknown", "encryption": "none"}
+
+    domain = email.split("@", 1)[1]
+    if domain not in smtp_config.supported_domains:
+        return {"type": "external", "encryption": "secure_link"}
+
+    try:
+        user = await db.get_user(email, session)
+        if user.public_key:
+            try:
+                jwk = json.loads(user.public_key)
+                if jwk.get("kty") == "RSA":
+                    return {"type": "local", "encryption": "e2e", "user_exists": True}
+            except json.JSONDecodeError:
+                pass
+        return {"type": "local", "encryption": "none", "user_exists": True}
+    except HTTPException:
+        return {"type": "local", "encryption": "none", "user_exists": False}
+
+
+@app.post("/api/external/send")
+async def external_send(
+    request: Request,
+    user: Annotated[User, Depends(db.request_user)],
+    to: Annotated[str, Body()],
+    encrypted_payload: Annotated[str, Body()],
+    hint: Annotated[str, Body()] = "",
+    session: Session = Depends(db.get_session),
+):
+    """Store client-encrypted payload and email recipient a secure viewing link."""
+    to = to.strip().lower()
+    if "@" not in to:
+        raise HTTPException(status_code=400, detail="Invalid recipient email")
+
+    domain = to.split("@", 1)[1]
+    if domain in smtp_config.supported_domains:
+        raise HTTPException(
+            status_code=400,
+            detail="Recipient is on this deployment — use internal send instead.",
+        )
+
+    require_valid_license_for_smtp()
+    if user.tier not in ["Pro", "Enterprise"]:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Secure external delivery requires Pro or Enterprise tier.",
+        )
+
+    message_id = str(uuid.uuid4())
+    token_data = secure_viewer.generate_access_token(message_id, to, hint or None)
+    expires_at = datetime.fromisoformat(token_data["expires"])
+
+    await db.create_external_message(
+        session,
+        uuid=message_id,
+        sender_username=user.username,
+        recipient_email=to,
+        encrypted_payload=encrypted_payload,
+        access_token=token_data["token"],
+        token_id=token_data["token_id"],
+        expires_at=expires_at,
+    )
+
+    base_url = _viewer_base_url(request)
+    viewer_url = f"{base_url}/view/{token_data['token']}"
+    notification_body = "\n".join([
+        f"You have received a secure encrypted message from {user.username}.",
+        "",
+        "Open the link below to view it. You will need the shared secret from the sender.",
+        "",
+        viewer_url,
+        "",
+        f"This link expires: {expires_at.strftime('%Y-%m-%d %H:%M UTC')}",
+    ])
+    if hint:
+        notification_body += f"\nHint: {hint}\n"
+
+    from_domain = user.username.split("@", 1)[1]
+    success, result = await smtp_relay.send_outbound(
+        from_addr=user.username,
+        to_addr=to,
+        subject=f"Secure message from {user.username}",
+        body=notification_body,
+        dkim_domain=from_domain,
+    )
+    if not success:
+        raise HTTPException(status_code=502, detail=f"Notification email failed: {result}")
+
+    audit.log_action(
+        session, user.username, "external_message_sent", to,
+        details={"message_id": message_id, "expires": token_data["expires"]},
+        ip_address=_client_ip(request),
+    )
+
+    return {
+        "message_id": message_id,
+        "viewer_url": viewer_url,
+        "expires": token_data["expires"],
+        "notification_sent": True,
+    }
+
+
+@app.get("/api/external/view/{token}")
+async def external_view_message(token: str, session: Session = Depends(db.get_session)):
+    """Public endpoint — returns encrypted blob only (no auth, no decryption)."""
+    validation = secure_viewer.validate_token(token)
+    if not validation.get("valid"):
+        raise HTTPException(status_code=404, detail=validation.get("error", "Invalid token"))
+
+    if secure_viewer.is_revoked(validation["token_id"], session):
+        raise HTTPException(status_code=410, detail="Access revoked")
+
+    message = await db.get_external_message(session, validation["message_id"])
+    if not message or message.revoked:
+        raise HTTPException(status_code=410, detail="Message not available")
+    if message.expires_at < datetime.now():
+        raise HTTPException(status_code=410, detail="Message expired")
+
+    return {
+        "sender": message.sender_username,
+        "recipient": message.recipient_email,
+        "encrypted_payload": message.encrypted_payload,
+        "hint": validation.get("hint") or "",
+        "expires_at": message.expires_at.isoformat(),
+        "viewed": message.viewed,
+    }
+
+
+@app.post("/api/external/view/{token}/opened")
+async def external_mark_opened(token: str, session: Session = Depends(db.get_session)):
+    """Record that recipient successfully opened the message (after client decrypt)."""
+    validation = secure_viewer.validate_token(token)
+    if not validation.get("valid"):
+        raise HTTPException(status_code=404, detail="Invalid token")
+    message = await db.get_external_message(session, validation["message_id"])
+    if message:
+        await db.mark_external_viewed(session, message)
+    return {"status": "ok"}
+
+
+@app.get("/api/external/sent")
+async def external_sent_list(
+    user: Annotated[User, Depends(db.request_user)],
+    session: Session = Depends(db.get_session),
+):
+    messages = await db.get_sent_external_messages(user, session)
+    return [
+        {
+            "uuid": m.uuid,
+            "recipient_email": m.recipient_email,
+            "expires_at": m.expires_at.isoformat(),
+            "viewed": m.viewed,
+            "viewed_at": m.viewed_at.isoformat() if m.viewed_at else None,
+            "revoked": m.revoked,
+            "created_at": m.created_at.isoformat(),
+        }
+        for m in messages
+    ]
+
+
+@app.post("/api/external/{message_id}/revoke")
+async def external_revoke(
+    request: Request,
+    message_id: str,
+    user: Annotated[User, Depends(db.request_user)],
+    session: Session = Depends(db.get_session),
+):
+    message = await db.get_external_message(session, message_id)
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if message.sender_username != user.username and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    await db.revoke_external_message(session, message)
+    secure_viewer.revoke_token(message.token_id, session)
+    audit.log_action(
+        session, user.username, "external_message_revoked", message_id,
+        ip_address=_client_ip(request),
+    )
+    return {"status": "revoked", "message_id": message_id}
 
 
 # --- Cryptographic transparency (public audit surface) ---

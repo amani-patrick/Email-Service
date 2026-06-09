@@ -18,6 +18,8 @@ import PaymentSuccess from './pages/PaymentSuccess';
 import BurnAddresses from './pages/BurnAddresses';
 import Drive from './pages/Drive';
 import Steganography from './pages/Steganography';
+import ExternalView from './pages/ExternalView';
+import ExternalSent from './pages/ExternalSent';
 
 // Components
 import Layout from './components/Layout';
@@ -78,6 +80,7 @@ const App = () => {
                 <Route path="/" element={token ? <Navigate to="/dashboard" /> : <LandingPage />} />
                 <Route path="/login" element={token ? <Navigate to="/dashboard" /> : <Login setToken={setToken} />} />
                 <Route path="/learn" element={<LearnMore />} />
+                <Route path="/view/:token" element={<ExternalView />} />
 
                 {/* Protected Routes */}
                 <Route path="/dashboard" element={
@@ -106,6 +109,9 @@ const App = () => {
                 } />
                 <Route path="/steganography" element={
                     token ? <Layout user={user} setToken={setToken}><Steganography user={user} /></Layout> : <Navigate to="/login" />
+                } />
+                <Route path="/external-sent" element={
+                    token ? <Layout user={user} setToken={setToken}><ExternalSent user={user} /></Layout> : <Navigate to="/login" />
                 } />
                 <Route path="/profile" element={
                     token ? <Layout user={user} setToken={setToken}><Profile user={user} /></Layout> : <Navigate to="/login" />
