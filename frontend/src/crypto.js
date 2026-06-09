@@ -58,6 +58,61 @@ export const decryptMessage = async (privateKey, encryptedBase64) => {
     return new TextDecoder().decode(decrypted);
 };
 
+/** Phase 2: password-based encryption for external recipients (server never sees secret). */
+const deriveAesKey = async (secret, salt) => {
+    const keyMaterial = await window.crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(secret),
+        "PBKDF2",
+        false,
+        ["deriveKey"]
+    );
+    return window.crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+};
+
+export const encryptWithSecret = async (secret, plaintext) => {
+    const salt = window.crypto.getRandomValues(new Uint8Array(16));
+    const iv = window.crypto.getRandomValues(new Uint8Array(12));
+    const aesKey = await deriveAesKey(secret, salt);
+    const encrypted = await window.crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        aesKey,
+        new TextEncoder().encode(plaintext)
+    );
+    return btoa(JSON.stringify({
+        v: 1,
+        alg: "PBKDF2-SHA256+AES-256-GCM",
+        salt: btoa(String.fromCharCode(...salt)),
+        iv: btoa(String.fromCharCode(...iv)),
+        data: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
+    }));
+};
+
+export const decryptWithSecret = async (secret, encodedPayload) => {
+    const payload = JSON.parse(atob(encodedPayload));
+    const salt = new Uint8Array(atob(payload.salt).split("").map((c) => c.charCodeAt(0)));
+    const iv = new Uint8Array(atob(payload.iv).split("").map((c) => c.charCodeAt(0)));
+    const data = new Uint8Array(atob(payload.data).split("").map((c) => c.charCodeAt(0)));
+    const aesKey = await deriveAesKey(secret, salt);
+    const decrypted = await window.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv },
+        aesKey,
+        data
+    );
+    return new TextDecoder().decode(decrypted);
+};
+
+export const generateSharedSecret = () => {
+    const bytes = window.crypto.getRandomValues(new Uint8Array(18));
+    return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, "").slice(0, 24);
+};
+
 /**
  * File Encryption Helpers (AES-GCM)
  */

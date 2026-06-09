@@ -473,8 +473,9 @@ class SecureExternalViewer:
             return {
                 "valid": True,
                 "message_id": payload.get("msg"),
+                "token_id": payload.get("jti"),
                 "recipient": payload.get("to"),
-                "hint": payload.get("hint")
+                "hint": payload.get("hint"),
             }
         except jwt.ExpiredSignatureError:
             return {"valid": False, "error": "Token expired"}

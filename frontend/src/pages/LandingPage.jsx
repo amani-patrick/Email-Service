@@ -41,8 +41,8 @@ const LandingPage = () => {
                         </h1>
 
                         <p className="mt-5 max-w-xl text-base leading-relaxed text-premium-secondary">
-                            End-to-end encrypted messaging for teams. Cryptographic identity, signed mail, and secure
-                            attachments—built for enterprise trust.
+                            Self-hosted, air-gapped secure email for enterprise and government. Zero-knowledge
+                            encryption, offline licensing, and full SMTP interoperability — no cloud dependency.
                         </p>
 
                         <div className="mt-8 flex flex-wrap items-center gap-4">

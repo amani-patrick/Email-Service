@@ -376,23 +376,13 @@ async def send(
         domain_part = to.split("@", 1)[1]
         is_local = domain_part in smtp_config.supported_domains
 
-    recipient = None
-    if is_local:
-        try:
-            recipient = await db.get_user(to, session)
-        except HTTPException:
-            if not to.endswith(".burn"):
-                raise HTTPException(status_code=404, detail=f"Recipient {to} not found")
-
     if not is_local:
-        require_valid_license_for_smtp()
-        if user.tier not in ["Pro", "Enterprise"]:
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="External SMTP relay requires Pro or Enterprise tier.",
-            )
+        raise HTTPException(
+            status_code=400,
+            detail="Non-local recipients require secure external delivery. Use POST /api/external/send from Compose.",
+        )
 
-    should_sign = len(user.certificate) > 0 and len(user.encrypted_private_key) > 0 and not user.encrypted_private_key.startswith('{')
+    recipient = None
 
     if not should_sign:
         msg = util.generate_email(

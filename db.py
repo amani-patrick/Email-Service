@@ -378,3 +378,61 @@ async def get_domain_by_id(domain_id: int, session: Session) -> Domain | None:
 
 async def count_users(session: Session) -> int:
     return len(session.exec(select(User)).all())
+
+
+# --- External secure delivery (Phase 2) ---
+
+async def create_external_message(
+    session: Session,
+    *,
+    uuid: str,
+    sender_username: str,
+    recipient_email: str,
+    encrypted_payload: str,
+    access_token: str,
+    token_id: str,
+    expires_at: datetime,
+) -> ExternalMessage:
+    record = ExternalMessage(
+        uuid=uuid,
+        sender_username=sender_username,
+        recipient_email=recipient_email.lower(),
+        encrypted_payload=encrypted_payload,
+        access_token=access_token,
+        token_id=token_id,
+        expires_at=expires_at,
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return record
+
+
+async def get_external_message(session: Session, message_id: str) -> ExternalMessage | None:
+    return session.exec(select(ExternalMessage).where(ExternalMessage.uuid == message_id)).first()
+
+
+async def get_sent_external_messages(user: User, session: Session) -> list[ExternalMessage]:
+    stmt = (
+        select(ExternalMessage)
+        .where(ExternalMessage.sender_username == user.username)
+        .order_by(ExternalMessage.created_at.desc())
+    )
+    return list(session.exec(stmt).all())
+
+
+async def revoke_external_message(session: Session, message: ExternalMessage) -> ExternalMessage:
+    message.revoked = True
+    session.add(message)
+    session.commit()
+    session.refresh(message)
+    return message
+
+
+async def mark_external_viewed(session: Session, message: ExternalMessage) -> ExternalMessage:
+    message.viewed = True
+    message.viewed_at = datetime.now()
+    session.add(message)
+    session.commit()
+    session.refresh(message)
+    return message
